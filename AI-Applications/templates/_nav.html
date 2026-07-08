@@ -1,0 +1,65 @@
+<!-- Shared Navigation Bar -->
+<nav class="site-nav">
+  <a href="/ai" class="logo">
+    <span class="dot"></span>
+    {{ lab_name }}
+  </a>
+  <a href="/ai/labs" class="nav-link">实验目录</a>
+  <a href="/ai/compat" class="nav-link">API 控制台</a>
+  <a href="/ai/store" class="nav-link">产品</a>
+  <a href="/ai/tickets" class="nav-link">工单</a>
+  <a href="/ai/admin/lab" class="nav-link">观测台</a>
+  <a href="/ai/admin/rate-limit" class="nav-link">限流</a>
+  <span class="nav-spacer"></span>
+  {% if auth_enabled is defined %}
+  <button id="auth-toggle" class="btn btn-sm nav-auth-btn" title="临时关闭/开启 Web 认证">
+    {% if auth_enabled %}🔒 认证{% else %}🔓 无认证{% endif %}
+  </button>
+  {% endif %}
+  <a href="/logout" class="nav-link nav-logout" title="退出登录">退出</a>
+</nav>
+
+{% if auth_enabled is defined %}
+<script>
+(function() {
+  var btn = document.getElementById("auth-toggle");
+  if (!btn) return;
+  btn.addEventListener("click", async function() {
+    btn.disabled = true;
+    btn.textContent = "切换中...";
+    try {
+      var r = await fetch("/api/v1/auth/toggle", { method: "POST" });
+      if (r.ok) {
+        var d = await r.json();
+        btn.textContent = d.enabled ? "🔒 认证" : "🔓 无认证";
+        btn.title = d.message;
+        if (d.enabled) {
+          btn.style.background = "var(--warning-soft)";
+          btn.style.color = "var(--warning)";
+          btn.style.borderColor = "var(--warning)";
+        } else {
+          btn.style.background = "var(--danger-soft)";
+          btn.style.color = "var(--danger)";
+          btn.style.borderColor = "var(--danger)";
+        }
+      }
+    } catch (e) {
+      btn.textContent = "失败";
+    } finally {
+      setTimeout(function() { btn.disabled = false; }, 600);
+    }
+  });
+  // 初始状态高亮
+  {% if auth_enabled %}
+  btn.style.background = "var(--warning-soft)";
+  btn.style.color = "var(--warning)";
+  btn.style.borderColor = "var(--warning)";
+  {% else %}
+  btn.style.background = "var(--danger-soft)";
+  btn.style.color = "var(--danger)";
+  btn.style.borderColor = "var(--danger)";
+  {% endif %}
+})();
+</script>
+{% endif %}
+

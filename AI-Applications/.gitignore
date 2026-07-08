@@ -1,0 +1,67 @@
+# ── 环境变量（含 API Key，绝不能提交）──
+.env
+*.env.local
+*.env.production
+
+# ── Python 虚拟环境 ──
+.venv/
+venv/
+.llamafw/
+env/
+ENV/
+
+# ── Python 缓存 & 编译产物 ──
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.py[cod]
+*.egg-info/
+*.egg
+dist/
+build/
+
+# ── 模型文件（体积大，不应提交）──
+models/
+
+# ── 运行时数据（数据库、向量库、上传文件）──
+data/
+*.db
+*.sqlite3
+
+# ── 证书（自签 TLS 证书，每台机器应独立生成）──
+.tmp-certs/
+certs/
+*.crt
+*.key
+*.pem
+
+# ── 测试 & 覆盖率 ──
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
+
+# ── IDE 配置 ──
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ── 系统文件 ──
+.DS_Store
+Thumbs.db
+*.log
+*.7z
+*.zip
+*.tar.gz
+
+# ── Node.js（如有前端构建）──
+node_modules/
+
+# ── Docker ──
+docker-compose.override.yml

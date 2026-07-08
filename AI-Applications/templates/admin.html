@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>实验观测台 · {{ lab_name }}</title>
+  <link rel="stylesheet" href="/static/lab.css">
+  <script src="/static/protocol.js" defer></script>
+</head>
+<body>
+  {% include "_nav.html" %}
+
+  <main class="container">
+    <section class="mt-2 mb-3">
+      <span class="eyebrow">Lab Telemetry</span>
+      <h1>实验观测台</h1>
+    </section>
+
+    <!-- 指标卡片 -->
+    <div class="dashboard-grid">
+      <div class="stat-card">
+        <div class="stat-label">防护模式</div>
+        <div class="stat-value">{{ defense_mode }}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">会话数</div>
+        <div class="stat-value">{{ conversation_count }}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">事件数</div>
+        <div class="stat-value">{{ event_count }}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">限流</div>
+        <div class="stat-value" style="font-size:1.1rem">{{ rate_limit }}/min</div>
+      </div>
+    </div>
+
+    <!-- 最近事件 -->
+    <div class="card mb-3">
+      <h2>最近事件</h2>
+      <div class="event-list">
+        {% for event in recent_events %}
+          <div class="event-item">
+            <div class="event-head">
+              <span class="event-kind">{{ event.kind }}</span>
+              <span class="event-ts">{{ event.ts }}</span>
+            </div>
+            <pre>{{ event.detail }}</pre>
+          </div>
+        {% else %}
+          <p class="text-muted text-sm">暂无事件。先从首页创建一条会话。</p>
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- AI-300 覆盖矩阵 -->
+    <div class="card mb-3">
+      <h2>AI-300 覆盖矩阵</h2>
+      <div class="event-list">
+        {% for module in modules %}
+          <div class="event-item">
+            <div class="event-head">
+              <strong>{{ module.title }}</strong>
+              <span class="tag tag-blue">{{ module.domain }}</span>
+            </div>
+            <p class="text-muted text-sm">{{ module.objective }}</p>
+            <a href="/ai/labs/{{ module.id }}" class="text-sm">打开模块 →</a>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- API 提示 -->
+    <div class="card">
+      <h2>API 提示</h2>
+      <p class="text-muted text-sm">结构化日志接口: <code>/api/v1/admin/logs</code>。默认训练 token 可在环境变量 <code>LAB_ADMIN_TOKEN</code> 中修改。</p>
+    </div>
+  </main>
+</body>
+</html>

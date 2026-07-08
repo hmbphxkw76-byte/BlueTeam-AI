@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>登录 · {{ lab_name }}</title>
+  <link rel="stylesheet" href="/static/lab.css">
+  <style>
+    .login-page {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--surface);
+    }
+    .login-card {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg, 12px);
+      padding: 40px 36px;
+      width: 100%;
+      max-width: 400px;
+      box-shadow: 0 4px 24px rgba(0,0,0,.06);
+    }
+    .login-card h1 {
+      font-size: 1.5rem;
+      margin: 0 0 4px;
+    }
+    .login-card .subtitle {
+      color: var(--text-secondary);
+      font-size: .88rem;
+      margin: 0 0 28px;
+    }
+    .login-card .form-group {
+      margin-bottom: 18px;
+    }
+    .login-card label {
+      display: block;
+      font-size: .84rem;
+      font-weight: 600;
+      margin-bottom: 4px;
+      color: var(--text);
+    }
+    .login-card input {
+      width: 100%;
+      box-sizing: border-box;
+    }
+    .login-card .btn {
+      width: 100%;
+      margin-top: 8px;
+    }
+    .login-card .error-msg {
+      color: var(--danger);
+      font-size: .84rem;
+      margin-top: 12px;
+      min-height: 20px;
+    }
+  </style>
+</head>
+<body class="login-page">
+  <form class="login-card" id="login-form" method="post" action="/login">
+    <h1>{{ lab_name }}</h1>
+    <p class="subtitle">请输入用户名和密码以访问训练靶机</p>
+
+    <div class="form-group">
+      <label for="username">用户名</label>
+      <input id="username" name="username" type="text" placeholder="admin" autocomplete="username" autofocus>
+    </div>
+
+    <div class="form-group">
+      <label for="password">密码</label>
+      <input id="password" name="password" type="password" placeholder="••••••••" autocomplete="current-password">
+    </div>
+
+    <button type="submit" class="btn btn-primary" id="login-btn">登 录</button>
+    <p class="error-msg" id="error">{% if error %}{{ error }}{% endif %}</p>
+  </form>
+
+  <script>
+    const form = document.getElementById("login-form");
+    const username = document.getElementById("username");
+    const password = document.getElementById("password");
+    const btn = document.getElementById("login-btn");
+    const error = document.getElementById("error");
+    const nextUrl = "{{ next }}";
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      error.textContent = "";
+      btn.disabled = true;
+      btn.textContent = "登录中...";
+
+      try {
+        const r = await fetch("/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            username: username.value.trim(),
+            password: password.value,
+          }),
+        });
+
+        if (r.ok) {
+          window.location.href = nextUrl;
+        } else {
+          const d = await r.json();
+          let msg = "登录失败，请重试";
+          if (Array.isArray(d.detail)) {
+            // FastAPI 422 验证错误：提取第一条错误信息
+            msg = d.detail.map(function(e) { return e.msg; }).join("；") || "请求格式错误";
+          } else if (typeof d.detail === "string") {
+            msg = d.detail;
+          }
+          error.textContent = msg;
+          password.value = "";
+          password.focus();
+        }
+      } catch (err) {
+        error.textContent = "网络错误，请检查服务是否运行";
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "登 录";
+      }
+    });
+  </script>
+</body>
+</html>

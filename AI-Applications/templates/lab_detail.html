@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ module.title }} · {{ lab_name }}</title>
+  <link rel="stylesheet" href="/static/lab.css">
+  <script src="/static/protocol.js" defer></script>
+</head>
+<body>
+  {% include "_nav.html" %}
+
+  <main class="container">
+    <section class="mt-2 mb-3">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+        <div>
+          <span class="eyebrow">{{ module.domain }} · {{ module.challenge.difficulty }}</span>
+          <h1>{{ module.title }}</h1>
+        </div>
+        <a href="/ai/labs" class="btn btn-ghost">← 返回目录</a>
+      </div>
+    </section>
+
+    <div class="grid-2">
+      <!-- 关卡信息 -->
+      <article class="card">
+        <h2>关卡背景</h2>
+        <p class="text-muted text-sm">{{ module.challenge.scenario }}</p>
+
+        <h2 class="mt-3">通关目标</h2>
+        <p class="text-muted text-sm">{{ module.challenge.learner_goal }}</p>
+        <p class="text-muted text-sm">{{ module.objective }}</p>
+
+        <div class="mt-3">
+          <p class="text-sm" style="font-weight:600;margin-bottom:4px">目标路由</p>
+          <code>{{ module.route }}</code>
+        </div>
+
+        <div class="mt-3">
+          <p class="text-sm" style="font-weight:600;margin-bottom:4px">建议输入</p>
+          <pre class="result-box" style="min-height:auto">{{ module.sample }}</pre>
+        </div>
+
+        <div class="flex-row mt-3">
+          {% for skill in module.skills %}
+            <span class="tag tag-ghost">{{ skill }}</span>
+          {% endfor %}
+        </div>
+      </article>
+
+      <!-- 任务列表 -->
+      <article class="card">
+        <h2>关卡任务</h2>
+        <div id="task-list" class="task-list">
+          {% for task in module.challenge.tasks %}
+            <div class="task-item" data-task-id="{{ task.id }}">
+              <div class="task-head">
+                <strong>{{ loop.index }}. {{ task.title }}</strong>
+                <span class="task-state">未完成</span>
+              </div>
+              <p>{{ task.description }}</p>
+            </div>
+          {% endfor %}
+        </div>
+      </article>
+    </div>
+
+    <div class="grid-2 mt-2">
+      <!-- 素材与提示 -->
+      <article class="card">
+        <h2>实验素材</h2>
+        {% for artifact in module.challenge.artifacts %}
+          <div class="artifact">
+            <strong>{{ artifact.name }}</strong>
+            <code>{{ artifact.path }}</code>
+            <p>{{ artifact.note }}</p>
+          </div>
+        {% endfor %}
+
+        <h2 class="mt-3">提示</h2>
+        <ul class="hint-list">
+          {% for hint in module.challenge.hints %}
+            <li>{{ hint }}</li>
+          {% endfor %}
+        </ul>
+      </article>
+
+      <!-- Probe 与评分 -->
+      <article class="card">
+        <h2>Probe 与评分</h2>
+        <p class="text-muted text-sm mb-2">输入你的实验载荷、观察或修复说明。完成全部任务后返回该关卡 flag。</p>
+        <textarea id="probe-input" rows="5">{{ module.sample }}</textarea>
+        <div class="flex-row mt-2">
+          <button id="probe" class="btn btn-primary">发送 Probe</button>
+          <button id="reset" class="btn btn-ghost" type="button">重置关卡</button>
+        </div>
+
+        <div class="progress-group mt-3">
+          <div class="progress-header">
+            <span>进度</span>
+            <strong id="progress-text">0%</strong>
+          </div>
+          <div class="progress-track">
+            <div class="progress-fill" id="progress-bar" style="width:0%"></div>
+          </div>
+        </div>
+
+        <pre id="probe-result" class="result-box mt-2"></pre>
+      </article>
+    </div>
+  </main>
+
+  <script>
+    const probe = document.querySelector("#probe");
+    const reset = document.querySelector("#reset");
+    const input = document.querySelector("#probe-input");
+    const result = document.querySelector("#probe-result");
+    const progressText = document.querySelector("#progress-text");
+    const progressBar = document.querySelector("#progress-bar");
+    const moduleId = "{{ module.id }}";
+
+    function updateTasks(data) {
+      if (!data.tasks) return;
+      data.tasks.forEach((task) => {
+        const item = document.querySelector(`[data-task-id="${task.id}"]`);
+        if (!item) return;
+        item.classList.toggle("completed", task.completed);
+        const state = item.querySelector(".task-state");
+        state.textContent = task.completed ? "已完成" : "未完成";
+      });
+      progressText.textContent = `${data.progress || 0}%`;
+      progressBar.style.width = `${data.progress || 0}%`;
+    }
+
+    probe.addEventListener("click", async () => {
+      probe.disabled = true;
+      result.textContent = "探测中...";
+      try {
+        const response = await fetch(`/api/v1/labs/${moduleId}/probe`, {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({input: input.value})
+        });
+        const data = await response.json();
+        updateTasks(data);
+        result.textContent = JSON.stringify(data, null, 2);
+      } catch (err) {
+        result.textContent = err.message || "探测失败";
+      } finally {
+        probe.disabled = false;
+      }
+    });
+
+    reset.addEventListener("click", async () => {
+      result.textContent = "重置中...";
+      await fetch(`/api/v1/labs/${moduleId}/reset`, {method: "POST"});
+      document.querySelectorAll(".task-item").forEach((item) => {
+        item.classList.remove("completed");
+        item.querySelector(".task-state").textContent = "未完成";
+      });
+      progressText.textContent = "0%";
+      progressBar.style.width = "0%";
+      result.textContent = "关卡已重置。";
+    });
+  </script>
+</body>
+</html>

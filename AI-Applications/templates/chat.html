@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ conversation.title }} · {{ lab_name }}</title>
+  <link rel="stylesheet" href="/static/lab.css">
+  <script src="/static/protocol.js" defer></script>
+</head>
+<body>
+  {% include "_nav.html" %}
+
+  <div class="chat-shell">
+    <aside class="chat-sidebar">
+      <a href="/ai" class="logo nav-logo">{{ lab_name }}</a>
+
+      <div class="section">
+        <span class="text-xs text-muted">会话 ID</span>
+        <code style="word-break:break-all">{{ conversation.id }}</code>
+      </div>
+      <div class="section">
+        <span class="text-xs text-muted">防护模式</span>
+        <code>{{ defense_mode }}</code>
+      </div>
+      <div class="section">
+        <a href="/ai/admin/lab" class="btn btn-ghost btn-sm" style="width:100%">实验观测台</a>
+      </div>
+    </aside>
+
+    <section class="chat-main">
+      <header class="chat-header">
+        <h1>{{ conversation.title }}</h1>
+        <code style="font-size:.75rem">/ai/chat/{{ conversation.id }}</code>
+      </header>
+
+      <div id="messages" class="messages">
+        {% for msg in conversation.messages %}
+          <article class="message {{ msg.role }}">
+            <div class="role">{{ "用户" if msg.role == "user" else "助手" }}</div>
+            <pre>{{ msg.content }}</pre>
+            {% if msg.meta %}
+              <div class="meta">RAG: {{ msg.meta.rag_docs | join(", ") }}</div>
+            {% endif %}
+          </article>
+        {% endfor %}
+      </div>
+
+      <form id="chat-form" class="chat-input">
+        <textarea id="message" rows="2" placeholder="继续输入消息，例如：查询 F5 身份信息"></textarea>
+        <button type="submit" class="btn btn-primary">发送</button>
+      </form>
+      <p id="error" style="color:var(--danger);padding:0 24px 12px;font-size:.86rem"></p>
+    </section>
+  </div>
+
+  <script>
+    const form = document.querySelector("#chat-form");
+    const message = document.querySelector("#message");
+    const messages = document.querySelector("#messages");
+    const error = document.querySelector("#error");
+    const conversationId = "{{ conversation.id }}";
+
+    function renderMessage(role, content, meta) {
+      const article = document.createElement("article");
+      article.className = `message ${role}`;
+
+      const label = document.createElement("div");
+      label.className = "role";
+      label.textContent = role === "user" ? "用户" : "助手";
+
+      const pre = document.createElement("pre");
+      pre.textContent = content;
+
+      article.append(label, pre);
+      if (meta && meta.rag_docs) {
+        const detail = document.createElement("div");
+        detail.className = "meta";
+        detail.textContent = `RAG: ${meta.rag_docs.join(", ")}`;
+        article.append(detail);
+      }
+      messages.append(article);
+      messages.scrollTop = messages.scrollHeight;
+    }
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      error.textContent = "";
+      const content = message.value.trim();
+      if (!content) return;
+
+      renderMessage("user", content);
+      message.value = "";
+
+      try {
+        const response = await fetch(`/api/v1/chat/${conversationId}`, {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({message: content})
+        });
+        if (!response.ok) throw new Error(await response.text());
+        const data = await response.json();
+        renderMessage("assistant", data.message.content, data.message.meta);
+      } catch (err) {
+        error.textContent = err.message || "发送失败";
+      }
+    });
+  </script>
+</body>
+</html>

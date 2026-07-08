@@ -1,0 +1,36 @@
+services:
+  aiseclab:
+    container_name: aiseclab
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: aiseclab:0.3
+    ports:
+      - "443:443"
+    env_file:
+      - .env
+    environment:
+      PYTHONPATH: /app/src
+      APP_ENV_FILE: /app/.env
+      LAB_NAME: AI Security Practice Target
+      LAB_DEFENSE_MODE: monitor
+      LAB_ADMIN_TOKEN: training-admin
+      LAB_COMPAT_API_KEY: training-key
+      LAB_API_RATE_LIMIT: "3"
+      AI_SECURITY_LEVEL: "2"
+      TICKET_ESCALATION_ENABLED: "1"
+      TICKET_AGENT_ENABLED: "1"
+      UVICORN_HTTPS_PORT: "443"
+      LAB_TLS_CERT_FILE: /app/certs/lab.crt
+      LAB_TLS_KEY_FILE: /app/certs/lab.key
+      LAB_TLS_HOSTS: localhost,127.0.0.1,0.0.0.0
+    volumes:
+      - ./.env:/app/.env
+      - ./data:/app/data
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request, ssl; urllib.request.urlopen('https://127.0.0.1:443/api/v1/health', timeout=3, context=ssl._create_unverified_context())\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped

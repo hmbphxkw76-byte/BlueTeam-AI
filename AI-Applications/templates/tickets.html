@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>工单管理 · {{ lab_name }}</title>
+  <link rel="stylesheet" href="/static/lab.css">
+  <style>
+    .ticket-list { margin-top: 1.5rem; }
+    .ticket-item { border: 1px solid var(--border); border-radius: 10px; padding: 1rem 1.25rem; margin-bottom: .75rem; transition: background .2s; display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; }
+    .ticket-item:hover { background: var(--bg-hover); }
+    .ticket-main { flex: 1; min-width: 0; }
+    .ticket-main .number { font-family: monospace; font-size: .82rem; color: var(--accent); font-weight: 600; }
+    .ticket-main h3 { margin: .25rem 0; font-size: 1rem; }
+    .ticket-main .meta { font-size: .78rem; color: var(--muted); }
+    .ticket-meta-right { text-align: right; flex-shrink: 0; }
+    .badge { display: inline-block; padding: 2px 10px; border-radius: 10px; font-size: .75rem; font-weight: 600; }
+    .badge-open { background: var(--info-soft); color: var(--info); }
+    .badge-in_progress { background: var(--warning-soft); color: var(--warning); }
+    .badge-resolved { background: var(--success-soft); color: var(--success); }
+    .badge-closed { background: var(--muted-soft); color: var(--muted); }
+    .badge-low { background: #e8f5e9; color: #388e3c; }
+    .badge-medium { background: #fff3e0; color: #f57c00; }
+    .badge-high { background: #fce4ec; color: #d32f2f; }
+    .badge-urgent { background: #b71c1c; color: #fff; }
+    .create-form { background: var(--bg-hover); border-radius: 12px; padding: 1.5rem; margin-top: 1.5rem; }
+    .create-form h2 { margin-top: 0; }
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
+    .form-row.full { grid-template-columns: 1fr; }
+    .stats-bar { display: flex; gap: 1rem; margin: 1rem 0; flex-wrap: wrap; }
+    .stat-item { background: var(--bg-hover); border-radius: 8px; padding: .75rem 1rem; text-align: center; min-width: 80px; }
+    .stat-item .num { font-size: 1.5rem; font-weight: 700; }
+    .stat-item .label { font-size: .75rem; color: var(--muted); }
+  </style>
+</head>
+<body>
+  {% include "_nav.html" %}
+
+  <main class="container">
+    <section class="mt-2 mb-3">
+      <span class="eyebrow">Ticket Management</span>
+      <h1>工单管理</h1>
+    </section>
+
+    <div class="stats-bar" id="stats-bar">
+      <div class="stat-item"><div class="num" id="stat-total">-</div><div class="label">总计</div></div>
+      <div class="stat-item"><div class="num" id="stat-open">-</div><div class="label">待处理</div></div>
+      <div class="stat-item"><div class="num" id="stat-progress">-</div><div class="label">处理中</div></div>
+      <div class="stat-item"><div class="num" id="stat-resolved">-</div><div class="label">已解决</div></div>
+    </div>
+
+    <!-- 创建工单 -->
+    <div class="create-form" id="create-form">
+      <h2>创建工单</h2>
+      <div class="form-row">
+        <div class="form-group"><label>主题</label><input id="t-subject" placeholder="工单主题"></div>
+        <div class="form-group"><label>分类</label>
+          <select id="t-category"><option>技术支持</option><option>账户与账单</option><option>产品信息</option><option>服务请求</option><option>投诉建议</option></select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>优先级</label>
+          <select id="t-priority"><option value="low">低</option><option value="medium" selected>中</option><option value="high">高</option><option value="urgent">紧急</option></select>
+        </div>
+        <div class="form-group"><label>对话ID（可选）</label><input id="t-conv-id" placeholder="留空表示不关联"></div>
+      </div>
+      <div class="form-row full">
+        <div class="form-group"><label>描述</label><textarea id="t-desc" rows="3" placeholder="请描述您遇到的问题..."></textarea></div>
+      </div>
+      <button id="create-btn" class="btn btn-primary" style="margin-top:.5rem">提交工单</button>
+      <span id="create-msg" style="margin-left:1rem;font-size:.84rem"></span>
+    </div>
+
+    <!-- 工单列表 -->
+    <div class="ticket-list" id="ticket-list">
+      <p class="text-muted">加载中...</p>
+    </div>
+  </main>
+
+  <script>
+    async function loadStats() {
+      try {
+        const r = await fetch('/api/v1/tickets/stats');
+        const d = await r.json();
+        document.getElementById('stat-total').textContent = d.total || '0';
+        document.getElementById('stat-open').textContent = d.open || '0';
+        document.getElementById('stat-progress').textContent = d.in_progress || '0';
+        document.getElementById('stat-resolved').textContent = d.resolved || '0';
+      } catch (e) { }
+    }
+
+    async function loadTickets() {
+      const list = document.getElementById('ticket-list');
+      list.innerHTML = '<p class="text-muted">加载中...</p>';
+      try {
+        const r = await fetch('/api/v1/tickets?per_page=50');
+        const d = await r.json();
+        const tickets = d.tickets || [];
+        if (!tickets.length) {
+          list.innerHTML = '<p class="text-muted">暂无工单，请创建第一个工单。</p>';
+          return;
+        }
+        list.innerHTML = tickets.map(t => `
+          <div class="ticket-item" onclick="window.location.href='/ai/tickets/${t.ticket_number}'" style="cursor:pointer">
+            <div class="ticket-main">
+              <span class="number">${t.ticket_number}</span>
+              <h3>${t.subject}</h3>
+              <div class="meta">${t.category || ''} · ${t.created_at?.slice(0,16) || ''}</div>
+            </div>
+            <div class="ticket-meta-right">
+              <span class="badge badge-${t.status}">${t.status}</span><br>
+              <span class="badge badge-${t.priority}" style="margin-top:4px">${t.priority}</span>
+            </div>
+          </div>
+        `).join('');
+      } catch (e) {
+        list.innerHTML = '<p class="text-muted" style="color:var(--danger)">加载失败</p>';
+      }
+    }
+
+    document.getElementById('create-btn').addEventListener('click', async function() {
+      const btn = this;
+      const msg = document.getElementById('create-msg');
+      btn.disabled = true; btn.textContent = '提交中...';
+      const payload = {
+        subject: document.getElementById('t-subject').value.trim(),
+        description: document.getElementById('t-desc').value.trim(),
+        category: document.getElementById('t-category').value,
+        priority: document.getElementById('t-priority').value,
+        conversation_id: document.getElementById('t-conv-id').value.trim() || null,
+      };
+      if (!payload.subject || !payload.description) {
+        msg.textContent = '请填写主题和描述'; msg.style.color = 'var(--danger)';
+        btn.disabled = false; btn.textContent = '提交工单'; return;
+      }
+      try {
+        const r = await fetch('/api/v1/tickets', {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(payload),
+        });
+        if (r.ok) {
+          const d = await r.json();
+          msg.textContent = '创建成功: ' + d.ticket.ticket_number; msg.style.color = 'var(--success)';
+          document.getElementById('t-subject').value = '';
+          document.getElementById('t-desc').value = '';
+          loadTickets(); loadStats();
+        } else {
+          const e = await r.json();
+          msg.textContent = (Array.isArray(e.detail) ? e.detail.map(x=>x.msg).join(';') : e.detail) || '创建失败';
+          msg.style.color = 'var(--danger)';
+        }
+      } catch (e) {
+        msg.textContent = '网络错误'; msg.style.color = 'var(--danger)';
+      } finally {
+        btn.disabled = false; btn.textContent = '提交工单';
+      }
+    });
+
+    loadStats(); loadTickets();
+  </script>
+</body>
+</html>

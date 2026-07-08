@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>速率限制 · {{ lab_name }}</title>
+  <link rel="stylesheet" href="/static/lab.css">
+  <script src="/static/protocol.js" defer></script>
+</head>
+<body>
+  {% include "_nav.html" %}
+
+  <main class="container">
+    <section class="mt-2 mb-3">
+      <span class="eyebrow">Rate Limit Control</span>
+      <h1>URL 速率限制</h1>
+      <p class="text-muted text-sm">对当前所有 URL 目录和子目录生效，静态资源 <code>/static/*</code> 除外。取值范围 1 到 9，默认 3。</p>
+    </section>
+
+    <div class="grid-2">
+      <article class="card">
+        <h2>当前配置</h2>
+        <div class="dashboard-grid cols-2">
+          <div class="stat-card">
+            <div class="stat-label">当前限制</div>
+            <div class="stat-value" id="current-limit">{{ rate_limit }}</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">时间窗口</div>
+            <div class="stat-value" style="font-size:1.1rem">{{ window_seconds }}s</div>
+          </div>
+        </div>
+        <p class="text-xs text-muted">限流粒度：每个客户端、每个 HTTP 方法、每个 URL 路径分别计数。</p>
+      </article>
+
+      <article class="card">
+        <h2>修改限制</h2>
+        <div class="form-group mb-2">
+          <label for="limit">每 60 秒允许请求数</label>
+          <input id="limit" type="number" min="1" max="9" value="{{ rate_limit }}">
+        </div>
+        <div class="flex-row">
+          <button id="save" class="btn btn-primary">保存</button>
+          <button id="refresh" class="btn btn-ghost" type="button">刷新状态</button>
+        </div>
+        <p id="message" class="text-xs text-muted mt-2"></p>
+        <pre id="result" class="result-box mt-2"></pre>
+      </article>
+    </div>
+  </main>
+
+  <script>
+    const limit = document.querySelector("#limit");
+    const save = document.querySelector("#save");
+    const refresh = document.querySelector("#refresh");
+    const message = document.querySelector("#message");
+    const result = document.querySelector("#result");
+    const currentLimit = document.querySelector("#current-limit");
+
+    function render(data) {
+      currentLimit.textContent = data.limit;
+      limit.value = data.limit;
+      result.textContent = JSON.stringify(data, null, 2);
+    }
+
+    async function loadState() {
+      const response = await fetch("/api/v1/rate-limit");
+      const data = await response.json();
+      render(data);
+    }
+
+    save.addEventListener("click", async () => {
+      message.textContent = "";
+      const value = Number(limit.value);
+      if (!Number.isInteger(value) || value < 1 || value > 9) {
+        message.textContent = "请输入 1 到 9 之间的整数。";
+        return;
+      }
+
+      save.disabled = true;
+      try {
+        const response = await fetch("/api/v1/rate-limit", {
+          method: "PUT",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({limit: value})
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(JSON.stringify(data));
+        render(data);
+        message.textContent = "速率限制已更新，并已清空当前限流计数。";
+      } catch (err) {
+        message.textContent = err.message || "更新失败";
+      } finally {
+        save.disabled = false;
+      }
+    });
+
+    refresh.addEventListener("click", loadState);
+    loadState();
+  </script>
+</body>
+</html>

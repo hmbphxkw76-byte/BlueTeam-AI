@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>实验目录 · {{ lab_name }}</title>
+  <link rel="stylesheet" href="/static/lab.css">
+  <script src="/static/protocol.js" defer></script>
+</head>
+<body>
+  {% include "_nav.html" %}
+
+  <main class="container">
+    <section class="mt-2 mb-3">
+      <span class="eyebrow">AI-300 Coverage</span>
+      <h1>实验目录</h1>
+      <p class="text-muted">共 {{ modules|length }} 个实验模块</p>
+    </section>
+
+    <div class="module-grid columns-2">
+      {% for module in modules %}
+        <article class="card module-item">
+          <div class="card-header">
+            <div class="tags">
+              <span class="tag tag-blue">{{ module.domain }}</span>
+              <span class="tag {% if module.challenge.difficulty == 'hard' %}tag-red{% elif module.challenge.difficulty == 'medium' %}tag-amber{% else %}tag-green{% endif %}">{{ module.challenge.difficulty }}</span>
+              <span class="tag tag-ghost">{{ module.challenge.tasks|length }} tasks</span>
+            </div>
+          </div>
+          <h3>{{ module.title }}</h3>
+          <p>{{ module.objective }}</p>
+          <p class="text-muted text-sm">{{ module.challenge.learner_goal }}</p>
+          <div class="footer">
+            <code>{{ module.route }}</code>
+            <a href="/ai/labs/{{ module.id }}" class="btn btn-accent btn-sm">进入实验</a>
+          </div>
+        </article>
+      {% endfor %}
+    </div>
+  </main>
+</body>
+</html>

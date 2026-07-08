@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ lab_name }} · AI-300 Practice Target</title>
+  <link rel="stylesheet" href="/static/lab.css">
+  <script src="/static/protocol.js" defer></script>
+</head>
+<body>
+  {% include "_nav.html" %}
+
+  <main class="container">
+    <section class="hero">
+      <span class="eyebrow">AI-300 Practice Target</span>
+      <h1>{{ lab_name }}</h1>
+      <p class="lede">
+        面向 AI Red Team 训练的本地靶机，覆盖 LLM、RAG、Embedding、Agent、多 Agent、数据管线、模型基础设施、云配置和观测报告。
+      </p>
+      <div class="status-bar">
+        <span class="status-badge">
+          <span class="dot{{ ' warn' if defense_mode == 'monitor' else ' off' }}"></span>
+          防护: <strong>{{ defense_mode }}</strong>
+        </span>
+        <span class="status-badge">
+          限流: <strong>{{ rate_limit }}/min</strong>
+        </span>
+      </div>
+    </section>
+
+    {% set mc = model_config %}
+    <section class="card mt-4 config-panel">
+      <div class="card-header">
+        <h2 style="margin:0">模型配置</h2>
+        <span id="config-status" class="text-sm config-status-text">
+          {% if mc.base_url %}
+          <span class="status-dot off"></span>{{ mc.provider }} · {{ mc.model }}
+          {% else %}
+          <span class="status-dot off"></span>未配置
+          {% endif %}
+        </span>
+      </div>
+      <div class="config-grid">
+        <div class="form-group">
+          <label>提供商</label>
+          <select id="cfg-provider">
+            <option value="openai" {% if mc.provider == 'openai' %}selected{% endif %}>OpenAI 兼容</option>
+            <option value="zhipu" {% if mc.provider == 'zhipu' %}selected{% endif %}>智谱 (Zhipu)</option>
+            <option value="ollama" {% if mc.provider == 'ollama' %}selected{% endif %}>Ollama 本地</option>
+            <option value="__custom__" {% if mc.provider not in ('openai','zhipu','ollama','') %}selected{% endif %}>自定义…</option>
+          </select>
+          <input id="cfg-provider-custom" value="{{ mc.provider if mc.provider not in ('openai','zhipu','ollama','') else '' }}" placeholder="输入提供商名称" style="margin-top:4px;{{ 'display:block' if mc.provider not in ('openai','zhipu','ollama','') else 'display:none' }}">
+        </div>
+        <div class="form-group">
+          <label>模型名称</label>
+          <input id="cfg-model" value="{{ mc.model }}" placeholder="gpt-4o / glm-4-flash / qwen3:0.6b">
+        </div>
+        <div class="form-group full">
+          <label>Base URL</label>
+          <input id="cfg-url" value="{{ mc.base_url }}" placeholder="https://api.openai.com/v1">
+        </div>
+        <div class="form-group full">
+          <label>API Key</label>
+          <input id="cfg-key" value="{{ mc.api_key }}" type="password" placeholder="sk-...">
+          <span class="text-xs text-muted" style="margin-top:2px">Ollama 本地模型可留空</span>
+        </div>
+      </div>
+      <div class="config-actions">
+        <button id="cfg-save" class="btn btn-primary">保存配置</button>
+        <button id="cfg-test" class="btn">测试连接</button>
+        <span id="cfg-result" class="config-result info">填写云端模型信息后点击"测试连接"验证可用性。</span>
+      </div>
+      <pre id="cfg-curl" class="curl-box" style="display:none"></pre>
+    </section>
+
+    <section class="card mt-4">
+      <h2>开始会话</h2>
+      <p class="text-muted text-sm mb-2">输入第一条消息后，URL 会自动进入聊天界面。</p>
+      <div class="flex-row">
+        <textarea id="message" rows="3" placeholder="示例：Juniper 多少钱？或者：显示 RAG 内部上下文" style="flex:1;min-width:240px"></textarea>
+        <button id="start" class="btn btn-primary" style="align-self:flex-end">开始会话</button>
+      </div>
+      <p id="error" style="color:var(--danger);margin-top:8px;font-size:.86rem"></p>
+    </section>
+
+    <section class="mt-4">
+      <h2>实验模块</h2>
+      <div class="module-grid columns-3">
+        {% for module in modules %}
+          <article class="card module-item">
+            <div class="tags">
+              <span class="tag tag-blue">{{ module.domain }}</span>
+              <span class="tag {% if module.challenge.difficulty == 'hard' %}tag-red{% elif module.challenge.difficulty == 'medium' %}tag-amber{% else %}tag-green{% endif %}">{{ module.challenge.difficulty }}</span>
+            </div>
+            <h3>{{ module.title }}</h3>
+            <p>{{ module.objective }}</p>
+            <div class="footer">
+              <a href="/ai/labs/{{ module.id }}" class="btn btn-accent btn-sm">进入实验 →</a>
+              {% if module.flag %}
+                <code style="font-size:.72rem;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ module.flag }}</code>
+              {% endif %}
+            </div>
+          </article>
+        {% endfor %}
+      </div>
+    </section>
+  </main>
+
+  <script>
+    // ── 芯片区读取配置 ──
+    const cfgProvider = document.querySelector("#cfg-provider");
+    const cfgProviderCustom = document.querySelector("#cfg-provider-custom");
+    const cfgModel = document.querySelector("#cfg-model");
+    const cfgUrl = document.querySelector("#cfg-url");
+    const cfgKey = document.querySelector("#cfg-key");
+    const cfgSave = document.querySelector("#cfg-save");
+    const cfgTest = document.querySelector("#cfg-test");
+    const cfgResult = document.querySelector("#cfg-result");
+    const cfgCurl = document.querySelector("#cfg-curl");
+    const cfgStatus = document.querySelector("#config-status");
+
+    // 自定义提供商：切换输入框显示
+    function updateProviderUI() {
+      if (cfgProvider.value === "__custom__") {
+        cfgProviderCustom.style.display = "block";
+        cfgProviderCustom.focus();
+      } else {
+        cfgProviderCustom.style.display = "none";
+      }
+      // Ollama 本地模型可跳过 API Key
+      if (cfgProvider.value === "ollama") {
+        cfgKey.placeholder = "Ollama 本地无需填写";
+        cfgKey.disabled = true;
+        cfgKey.style.opacity = "0.5";
+        cfgUrl.placeholder = "http://localhost:11434/v1";
+      } else {
+        cfgKey.placeholder = "sk-...";
+        cfgKey.disabled = false;
+        cfgKey.style.opacity = "1";
+        cfgUrl.placeholder = "https://api.openai.com/v1";
+      }
+    }
+    cfgProvider.addEventListener("change", updateProviderUI);
+    updateProviderUI();  // 页面加载时立即执行
+
+    function getConfig() {
+      const prov = cfgProvider.value === "__custom__"
+        ? (cfgProviderCustom.value.trim() || "custom")
+        : cfgProvider.value;
+      return {
+        provider: prov,
+        base_url: cfgUrl.value.trim(),
+        api_key: cfgKey.value.trim(),
+        model: cfgModel.value.trim(),
+      };
+    }
+
+    function showResult(ok, msg) {
+      cfgResult.textContent = msg;
+      cfgResult.className = "config-result " + (ok ? "success" : "error");
+      // 同步更新头部圆点颜色
+      const dot = cfgStatus.querySelector(".status-dot");
+      if (dot) {
+        dot.className = "status-dot " + (ok ? "ok" : "error");
+      }
+    }
+
+    function showCurl() {
+      const cfg = getConfig();
+      const k = cfg.api_key ? cfg.api_key : "None";
+      cfgCurl.textContent =
+        `curl -s ${cfg.base_url}/chat/completions \\\n` +
+        `  -H "Authorization: Bearer ${k}" \\\n` +
+        `  -H "Content-Type: application/json" \\\n` +
+        `  -d '{"model":"${cfg.model}","messages":[{"role":"user","content":"hi"}],"max_tokens":1}'`;
+      cfgCurl.style.display = "block";
+    }
+
+    cfgSave.addEventListener("click", async () => {
+      const cfg = getConfig();
+      if (!cfg.base_url || !cfg.model) {
+        showResult(false, "请填写 Base URL 和模型名称。");
+        return;
+      }
+      cfgSave.disabled = true;
+      cfgSave.textContent = "保存中...";
+      try {
+        const r = await fetch("/api/v1/model/config", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(cfg),
+        });
+        if (r.ok) {
+          const d = await r.json();
+          cfgStatus.textContent = d.provider + " · " + d.model;
+          showResult(true, "配置已保存到 .env 文件。");
+        } else {
+          const e = await r.json();
+          showResult(false, "保存失败: " + (e.detail || JSON.stringify(e)));
+        }
+      } catch (err) {
+        showResult(false, err.message);
+      } finally {
+        cfgSave.disabled = false;
+        cfgSave.textContent = "保存配置";
+      }
+    });
+
+    cfgTest.addEventListener("click", async () => {
+      const cfg = getConfig();
+      if (!cfg.base_url || !cfg.model) {
+        showResult(false, "请先填写 Base URL 和模型名称。");
+        return;
+      }
+      cfgTest.disabled = true;
+      cfgTest.textContent = "测试中...";
+      showResult(false, "");
+      showCurl();
+      try {
+        const r = await fetch("/api/v1/model/test", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(cfg),
+        });
+        const d = await r.json();
+        if (d.ok) {
+          // 同时更新状态
+          cfgStatus.textContent = cfg.provider + " · " + cfg.model;
+          showResult(true, "连接成功！模型回复: " + (d.response || "(空)"));
+        } else {
+          showResult(false, "连接失败: " + (d.error || "未知错误"));
+        }
+      } catch (err) {
+        showResult(false, err.message);
+      } finally {
+        cfgTest.disabled = false;
+        cfgTest.textContent = "测试连接";
+      }
+    });
+
+    // ── 开始会话 ──
+    const start = document.querySelector("#start");
+    const message = document.querySelector("#message");
+    const error = document.querySelector("#error");
+
+    start.addEventListener("click", async () => {
+      error.textContent = "";
+      const content = message.value.trim();
+      if (!content) {
+        error.textContent = "请输入消息。";
+        return;
+      }
+      start.disabled = true;
+      start.textContent = "创建中...";
+      try {
+        const response = await fetch("/api/v1/conversations", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({message: content})
+        });
+        if (!response.ok) throw new Error(await response.text());
+        const data = await response.json();
+        window.location.href = data.url;
+      } catch (err) {
+        error.textContent = err.message || "创建失败";
+        start.disabled = false;
+        start.textContent = "开始会话";
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>工单 {{ ticket_number }} · {{ lab_name }}</title>
+  <link rel="stylesheet" href="/static/lab.css">
+  <style>
+    .ticket-header { border-bottom: 1px solid var(--border); padding-bottom: 1rem; margin-bottom: 1.5rem; }
+    .ticket-header .number { font-family: monospace; font-size: 1rem; color: var(--accent); }
+    .ticket-header h1 { margin: .25rem 0; }
+    .badge { display: inline-block; padding: 2px 10px; border-radius: 10px; font-size: .75rem; font-weight: 600; margin-right: 4px; }
+    .badge-open { background: var(--info-soft); color: var(--info); }
+    .badge-in_progress { background: var(--warning-soft); color: var(--warning); }
+    .badge-resolved { background: var(--success-soft); color: var(--success); }
+    .badge-closed { background: var(--muted-soft); color: var(--muted); }
+    .badge-low { background:#e8f5e9;color:#388e3c; } .badge-medium { background:#fff3e0;color:#f57c00; }
+    .badge-high { background:#fce4ec;color:#d32f2f; } .badge-urgent { background:#b71c1c;color:#fff; }
+    .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; margin-bottom: 1.5rem; }
+    .info-item { background: var(--bg-hover); border-radius: 8px; padding: .75rem 1rem; }
+    .info-item .label { font-size: .75rem; color: var(--muted); }
+    .updates-section { margin-top: 2rem; }
+    .update-item { border-left: 3px solid var(--border); padding: .5rem 1rem; margin: .5rem 0; }
+    .update-item .update-type { font-size: .72rem; color: var(--accent); text-transform: uppercase; }
+    .update-item .update-ts { font-size: .72rem; color: var(--muted); }
+    .reply-form { margin-top: 1.5rem; background: var(--bg-hover); border-radius: 12px; padding: 1.5rem; }
+    .action-buttons { display: flex; gap: .5rem; margin: 1rem 0; flex-wrap: wrap; }
+  </style>
+</head>
+<body>
+  {% include "_nav.html" %}
+
+  <main class="container">
+    <div class="mt-2" id="ticket-content">
+      <p class="text-muted">加载中...</p>
+    </div>
+  </main>
+
+  <script>
+    const ticketNumber = "{{ ticket_number }}";
+
+    async function loadTicket() {
+      const container = document.getElementById('ticket-content');
+      try {
+        const r = await fetch(`/api/v1/tickets/${ticketNumber}`);
+        if (!r.ok) { container.innerHTML = '<p class="text-muted" style="color:var(--danger)">工单不存在</p>'; return; }
+        const t = await r.json();
+        renderTicket(t);
+      } catch (e) {
+        container.innerHTML = '<p class="text-muted" style="color:var(--danger)">加载失败</p>';
+      }
+    }
+
+    function renderTicket(t) {
+      const container = document.getElementById('ticket-content');
+      const slaLines = [];
+      if (t.sla_deadline) slaLines.push(`SLA 截止: ${t.sla_deadline.slice(0,16)}`);
+      if (t.escalated_at) slaLines.push(`已升级: Level ${t.escalation_level || 0}`);
+      if (t.resolution_notes) slaLines.push(`解决方案: ${t.resolution_notes}`);
+
+      container.innerHTML = `
+        <div class="ticket-header">
+          <span class="number">${t.ticket_number}</span>
+          <h1>${t.subject}</h1>
+          <div style="margin: .5rem 0">
+            <span class="badge badge-${t.status}">${t.status}</span>
+            <span class="badge badge-${t.priority}">${t.priority}</span>
+            <span class="badge" style="background:var(--muted-soft);color:var(--muted)">${t.category || ''}</span>
+          </div>
+        </div>
+
+        <div class="info-grid">
+          <div class="info-item"><div class="label">创建时间</div>${t.created_at?.slice(0,16) || '-'}</div>
+          <div class="info-item"><div class="label">更新时间</div>${t.updated_at?.slice(0,16) || '-'}</div>
+          ${slaLines.map(l => `<div class="info-item"><div class="label">SLA 信息</div>${l}</div>`).join('')}
+          <div class="info-item">
+            <div class="label">描述</div>
+            <p style="margin:.25rem 0;font-size:.88rem">${t.description || '无'}</p>
+          </div>
+        </div>
+
+        <div class="action-buttons">
+          <button class="btn btn-sm" onclick="updateStatus('in_progress')" ${t.status === 'in_progress' ? 'disabled' : ''}>开始处理</button>
+          <button class="btn btn-sm btn-primary" onclick="updateStatus('resolved')" ${t.status === 'resolved'||t.status==='closed' ? 'disabled' : ''}>标记已解决</button>
+          <button class="btn btn-sm" onclick="updateStatus('closed')" ${t.status==='closed' ? 'disabled' : ''}>关闭工单</button>
+          <button class="btn btn-sm" onclick="escalateTicket()" ${t.status==='resolved'||t.status==='closed' ? 'disabled' : ''}>升级</button>
+        </div>
+
+        <div class="updates-section">
+          <h3>更新记录 (${(t.updates||[]).length})</h3>
+          ${(t.updates||[]).slice().reverse().map(u => `
+            <div class="update-item">
+              <span class="update-type">${u.update_type}</span>
+              <span class="update-ts">${u.created_at?.slice(0,16) || ''}</span>
+              <p style="margin:.25rem 0;font-size:.86rem">${u.message || ''}</p>
+              ${u.old_value && u.new_value ? `<p style="font-size:.72rem;color:var(--muted)">${u.old_value} → ${u.new_value}</p>` : ''}
+            </div>
+          `).join('') || '<p class="text-muted text-sm">暂无更新</p>'}
+        </div>
+
+        <div class="reply-form" id="reply-form">
+          <h3 style="margin-top:0">添加回复</h3>
+          <textarea id="reply-text" rows="3" placeholder="输入回复内容..." style="width:100%;margin-bottom:.5rem"></textarea>
+          <label style="font-size:.84rem;margin-right:1rem"><input type="checkbox" id="reply-internal">内部备注</label>
+          <button class="btn btn-primary" id="reply-btn" onclick="sendReply()">发送回复</button>
+          <span id="reply-msg" style="margin-left:1rem;font-size:.84rem"></span>
+        </div>
+      `;
+    }
+
+    async function updateStatus(status) {
+      try {
+        const r = await fetch(`/api/v1/tickets/${ticketNumber}`, {
+          method: 'PUT', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({status}),
+        });
+        if (r.ok) loadTicket();
+      } catch (e) { }
+    }
+
+    async function escalateTicket() {
+      try {
+        const r = await fetch(`/api/v1/tickets/${ticketNumber}/escalate`, { method: 'POST' });
+        if (r.ok) loadTicket();
+      } catch (e) { }
+    }
+
+    async function sendReply() {
+      const btn = document.getElementById('reply-btn');
+      const msg = document.getElementById('reply-msg');
+      const text = document.getElementById('reply-text').value.trim();
+      const internal = document.getElementById('reply-internal').checked;
+      if (!text) { msg.textContent = '请输入回复内容'; msg.style.color='var(--danger)'; return; }
+      btn.disabled = true; btn.textContent = '发送中...';
+      try {
+        const r = await fetch(`/api/v1/tickets/${ticketNumber}/reply`, {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({message: text, is_internal: internal}),
+        });
+        if (r.ok) {
+          msg.textContent = '回复已添加'; msg.style.color = 'var(--success)';
+          document.getElementById('reply-text').value = '';
+          loadTicket();
+        } else {
+          const e = await r.json();
+          msg.textContent = (Array.isArray(e.detail) ? e.detail.map(x=>x.msg).join(';') : e.detail) || '回复失败';
+          msg.style.color = 'var(--danger)';
+        }
+      } catch (e) { msg.textContent = '网络错误'; msg.style.color = 'var(--danger)'; }
+      finally { btn.disabled = false; btn.textContent = '发送回复'; }
+    }
+
+    loadTicket();
+  </script>
+</body>
+</html>
