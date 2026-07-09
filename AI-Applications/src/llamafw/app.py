@@ -83,6 +83,21 @@ from .ai300_modules import (
     handle_rate_limit_check,
     handle_graphql_endpoint,
     get_api_attack_events,
+    handle_embedding_debug_search,
+    handle_embedding_debug_vectors,
+    handle_kb_poisoning_insert,
+    handle_kb_poisoning_documents,
+    handle_chromadb_list,
+    handle_chromadb_read,
+    handle_langchain_chat,
+    handle_langchain_memory,
+    handle_langgraph_get_state,
+    handle_langgraph_update_state,
+    handle_tool_register,
+    handle_tool_execute,
+    handle_tool_list,
+    get_embedding_docs,
+    get_langgraph_graph_info,
     LabProbeRequest as AI300ProbeRequest,
     ModelExtractionRequest,
     ModelServingInferRequest,
@@ -91,7 +106,114 @@ from .ai300_modules import (
     JWTVerifyRequest,
     GraphQLRequest,
     RateLimitRequest,
+    EmbeddingDebugSearchRequest,
+    KBPoisoningInsertRequest,
+    ChromaDBReadRequest,
+    LangChainChatRequest,
+    LangGraphStateUpdateRequest,
+    ToolRegisterRequest,
+    ToolExecuteRequest,
     challenge_attempts as ai300_attempts,
+)
+from .ai300_owasp_modules import (
+    handle_llm09_chat,
+    handle_llm10_chat,
+    handle_llm10_stats,
+    handle_agent_goal_hijack_ingest,
+    handle_agent_goal_hijack_plan,
+    handle_agent_identity_info,
+    handle_agent_admin_action,
+    handle_cascade_resolve,
+    handle_cascade_execute,
+    handle_cascade_orchestrate,
+    handle_agent_recommend,
+    handle_rogue_logs,
+    handle_rogue_report,
+    handle_rogue_c2,
+    handle_mcp_debug_trace,
+    handle_mcp_logs,
+    handle_mcp_cmd_list_tools,
+    handle_mcp_cmd_execute,
+    handle_mcp_admin_list_agents,
+    handle_mcp_admin_sessions,
+    handle_shadow_mcp_config,
+    handle_shadow_mcp_data_export,
+    handle_shadow_mcp_discover,
+    handle_embedding_inversion_embed,
+    handle_embedding_inversion_probe,
+    handle_mia_candidates,
+    handle_mia_search,
+    handle_mia_results,
+    OWASPChatRequest,
+    OWASPGoalHijackIngestRequest,
+    OWASPGoalHijackPlanRequest,
+    OWASPAdminActionRequest,
+    OWASPCascadeResolveRequest,
+    OWASPCascadeExecuteRequest,
+    OWASPTrustRecommendRequest,
+    OWASPMCPExecuteRequest,
+    OWASPShadowLoginRequest,
+    OWASPEmbeddingRequest,
+)
+from .openairt300_backend import (
+    OPEN_AIRT_300_MODULES,
+    OPEN_AIRT_MODULE_MAP,
+    get_openairt_attempts,
+    get_openairt_module_state,
+    reset_openairt_module,
+    # Pydantic models
+    AIRT300ProbeRequest,
+    M0ChatRequest, M1OAuthQuery, M2FingerprintQuery, M2TokenAttack,
+    M3JailbreakSweep, M4EmailInject, M4SlackInject, M4RulesScan,
+    M5GitMCPExec, M5FSPath, M5SandboxExec,
+    M6RAGPoisonInsert, M6EmbeddingInvert,
+    M7AgentTask, M7GitHubIssue, M7CLIAbuse,
+    M8MCPToolExec, M8A2AMessage,
+    M9NPMInstall, M9ModelFile,
+    M10EvasionAttack, M10ExtractionQuery,
+    M11ImageInject, M11PDFWeaponize, M11AudioInject,
+    M12LangFlowPayload, M12K8SPivot,
+    M13RiskScore, M13CIWorkflow,
+    M14CapstoneProbe,
+    # Handlers — M0
+    handle_m0_chat, handle_m0_models, handle_m0_probe,
+    # M1
+    handle_m1_oauth_apps, handle_m1_env_vars, handle_m1_discovery, handle_m1_probe,
+    # M2
+    handle_m2_fingerprint, handle_m2_token_attack, handle_m2_context_window, handle_m2_probe,
+    # M3
+    handle_m3_strategy_sweep, handle_m3_encoding_sweep, handle_m3_layered_attack, handle_m3_probe,
+    # M4
+    handle_m4_email_inject, handle_m4_inbox, handle_m4_slack_inject,
+    handle_m4_rules_scan, handle_m4_slack_channels, handle_m4_probe,
+    # M5
+    handle_m5_git_mcp_exec, handle_m5_fs_path, handle_m5_sandbox_exec, handle_m5_probe,
+    # M6
+    handle_m6_rag_poison, handle_m6_docs, handle_m6_embedding_invert,
+    handle_m6_cross_tenant, handle_m6_probe,
+    # M7
+    handle_m7_replit_agent, handle_m7_db_status, handle_m7_github_mcp_inject,
+    handle_m7_ai_cli_abuse, handle_m7_probe,
+    # M8
+    handle_m8_list_servers, handle_m8_dvmcp_challenge, handle_m8_mastra_traversal,
+    handle_m8_nomshub_escape, handle_m8_rugpull, handle_m8_a2a_smuggle, handle_m8_probe,
+    # M9
+    handle_m9_npm_install, handle_m9_registry_scan, handle_m9_model_file_scan,
+    handle_m9_sidecar_audit, handle_m9_probe,
+    # M10
+    handle_m10_evasion, handle_m10_extraction, handle_m10_membership_inference,
+    handle_m10_toolchain_gap, handle_m10_probe,
+    # M11
+    handle_m11_image_inject, handle_m11_pdf_weaponize, handle_m11_audio_inject, handle_m11_probe,
+    # M12
+    handle_m12_langflow_exec, handle_m12_langgrinch_inject,
+    handle_m12_ray_hijack, handle_m12_k8s_pivot, handle_m12_probe,
+    # M13
+    handle_m13_playbook, handle_m13_risk_score, handle_m13_compliance_mapping,
+    handle_m13_ci_generate, handle_m13_probe,
+    # M14
+    handle_m14_objectives, handle_m14_capstone_probe,
+    handle_m14_scoreboard, handle_m14_report_template, handle_m14_probe,
 )
 
 
@@ -99,10 +221,12 @@ from .ai300_modules import (
 #  FastAPI 应用与静态资源挂载
 # ═══════════════════════════════════════════════════════════
 
+_https_port = os.getenv("UVICORN_HTTPS_PORT", "443")
 app = FastAPI(
     title="AISecLab — AI Security Lab",
     description="AI 安全训练靶机 + 智能客服模拟平台，集成工单系统、向量 RAG 和 AI Agent。",
     version="0.2.0",
+    servers=[{"url": f"https://localhost:{_https_port}", "description": "默认 HTTPS"}],
 )
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
@@ -345,6 +469,24 @@ for supp_module in SUPPLEMENTARY_MODULES:
         LAB_MODULES.append(supp_module)
 
 LAB_MODULE_MAP = {module["id"]: module for module in LAB_MODULES}
+
+# ── 合并 OpenAIRT-300 补充实验模块 ──
+for airt_module in OPEN_AIRT_300_MODULES:
+    if airt_module["id"] not in [m["id"] for m in LAB_MODULES]:
+        LAB_MODULES.append(airt_module)
+
+# 更新映射
+LAB_MODULE_MAP = {module["id"]: module for module in LAB_MODULES}
+
+# ── 为所有模块补充 challenge 信息（模板 home.html 需要）──
+_DEFAULT_CHALLENGE = {
+    "difficulty": "beginner", "scenario": "—", "learner_goal": "—",
+    "tasks": [], "artifacts": [], "hints": [],
+}
+for _mod in LAB_MODULES:
+    _cid = _mod.get("id", "")
+    if "challenge" not in _mod:
+        _mod["challenge"] = CHALLENGE_DETAILS.get(_cid, _DEFAULT_CHALLENGE)
 
 
 # ═══════════════════════════════════════════════════════════
@@ -784,13 +926,16 @@ async def api_rate_limit_middleware(request: Request, call_next):
 # ── 认证中间件 ──
 AUTH_EXEMPT_PREFIXES = ("/static/", "/login", "/api/v1/auth/", "/api/v1/health", "/api/health")
 
+# 精确豁免路径（robots.txt 等不需要认证的公共资源）
+AUTH_EXEMPT_PATHS = {"/robots.txt"}
+
 
 @app.middleware("http")
 async def web_auth_middleware(request: Request, call_next):
     path = request.url.path
 
     # 跳过豁免路径
-    if any(path.startswith(p) for p in AUTH_EXEMPT_PREFIXES):
+    if any(path.startswith(p) for p in AUTH_EXEMPT_PREFIXES) or path in AUTH_EXEMPT_PATHS:
         return await call_next(request)
 
     # 跳过所有 API 路由（训练靶机保留 API 可访问性）
@@ -964,6 +1109,15 @@ async def startup() -> None:
 # ═══════════════════════════════════════════════════════════
 #  页面路由
 # ═══════════════════════════════════════════════════════════
+
+@app.get("/robots.txt")
+def robots_txt() -> HTMLResponse:
+    """提供 robots.txt（AI Infra Recon 模块故意暴露内部路径）。"""
+    robots_path = STATIC_DIR / "robots.txt"
+    if robots_path.exists():
+        return HTMLResponse(content=robots_path.read_text(encoding="utf-8"), media_type="text/plain")
+    return HTMLResponse(content="User-agent: *\nDisallow: /\n", media_type="text/plain")
+
 
 @app.get("/", response_class=HTMLResponse)
 @app.get("/ai", response_class=HTMLResponse)
@@ -1939,3 +2093,622 @@ def ai300_events_export(
     if provided != LAB_ADMIN_TOKEN:
         raise HTTPException(status_code=403, detail="invalid lab token")
     return {"events": get_all_audit_events()}
+
+
+# ═══════════════════════════════════════════════════════════
+#  Embedding 进阶模块 API 端点
+# ═══════════════════════════════════════════════════════════
+
+# ── E1: Embedding Debug Leak ──
+
+@app.post("/api/v1/labs/embedding-debug/search")
+def embedding_debug_search(payload: EmbeddingDebugSearchRequest) -> dict[str, Any]:
+    return handle_embedding_debug_search(payload.query, payload.n_results)
+
+
+@app.get("/api/v1/labs/embedding-debug/vectors")
+def embedding_debug_vectors(doc_id: str = Query(default="")) -> dict[str, Any]:
+    return handle_embedding_debug_vectors(doc_id)
+
+
+@app.get("/api/v1/labs/embedding-debug/docs")
+def embedding_debug_docs() -> dict[str, Any]:
+    """列出所有知识库文档（含 classification）。"""
+    docs = get_embedding_docs()
+    return {
+        "total": len(docs),
+        "warning": "调试端点暴露了所有文档的 classification 和内容。",
+        "documents": docs,
+    }
+
+
+# ── E2: Knowledge Poisoning ──
+
+@app.post("/api/v1/labs/knowledge-poisoning/insert")
+def kb_poisoning_insert(payload: KBPoisoningInsertRequest) -> dict[str, Any]:
+    return handle_kb_poisoning_insert(payload.classification, payload.title, payload.content, payload.source)
+
+
+@app.get("/api/v1/labs/knowledge-poisoning/documents")
+def kb_poisoning_documents() -> dict[str, Any]:
+    return handle_kb_poisoning_documents()
+
+
+# ── E3: ChromaDB File Exposure ──
+
+@app.get("/api/v1/labs/chromadb-exposure/list")
+def chromadb_exposure_list(directory: str = Query(default="")) -> dict[str, Any]:
+    return handle_chromadb_list(directory)
+
+
+@app.get("/api/v1/labs/chromadb-exposure/read")
+def chromadb_exposure_read(path: str = Query(default="")) -> dict[str, Any]:
+    if not path:
+        raise HTTPException(status_code=400, detail="path parameter is required")
+    return handle_chromadb_read(path)
+
+
+# ═══════════════════════════════════════════════════════════
+#  Agent 框架漏洞模块 API 端点
+# ═══════════════════════════════════════════════════════════
+
+# ── A1: LangChain Injection ──
+
+@app.post("/api/v1/labs/langchain-injection/chat")
+def langchain_injection_chat(payload: LangChainChatRequest) -> dict[str, Any]:
+    return handle_langchain_chat(payload.input)
+
+
+@app.get("/api/v1/labs/langchain-injection/memory")
+def langchain_injection_memory() -> dict[str, Any]:
+    return handle_langchain_memory()
+
+
+# ── A2: LangGraph State Poisoning ──
+
+@app.get("/api/v1/labs/langgraph-poisoning/state")
+def langgraph_poisoning_get_state() -> dict[str, Any]:
+    return handle_langgraph_get_state()
+
+
+@app.post("/api/v1/labs/langgraph-poisoning/state")
+def langgraph_poisoning_update_state(payload: LangGraphStateUpdateRequest) -> dict[str, Any]:
+    return handle_langgraph_update_state(payload.updates)
+
+
+@app.get("/api/v1/labs/langgraph-poisoning/graph")
+def langgraph_poisoning_graph() -> dict[str, Any]:
+    return get_langgraph_graph_info()
+
+
+# ── A3: Tool Definition Injection ──
+
+@app.post("/api/v1/labs/tool-def-injection/register")
+def tool_def_injection_register(payload: ToolRegisterRequest) -> dict[str, Any]:
+    return handle_tool_register(payload.name, payload.description, payload.parameters)
+
+
+@app.post("/api/v1/labs/tool-def-injection/execute")
+def tool_def_injection_execute(payload: ToolExecuteRequest) -> dict[str, Any]:
+    return handle_tool_execute(payload.tool_name, payload.arguments)
+
+
+@app.get("/api/v1/labs/tool-def-injection/tools")
+def tool_def_injection_list() -> dict[str, Any]:
+    return handle_tool_list()
+
+
+
+
+# ═══════════════════════════════════════════════════════════
+#  OWASP LLM Top 10 (2025) 补充模块 API 端点
+# ═══════════════════════════════════════════════════════════
+
+# ── L9: LLM09 Misinformation & Hallucination ──
+
+@app.post("/api/v1/labs/llm09-misinformation/chat")
+def llm09_misinformation_chat(payload: OWASPChatRequest) -> dict[str, Any]:
+    return handle_llm09_chat(payload.message)
+
+
+# ── L10: LLM10 Unbounded Resource Consumption ──
+
+@app.post("/api/v1/labs/llm10-unbounded-consumption/chat")
+def llm10_unbounded_chat(payload: OWASPChatRequest) -> dict[str, Any]:
+    return handle_llm10_chat(payload.message)
+
+
+@app.get("/api/v1/labs/llm10-unbounded-consumption/stats")
+def llm10_unbounded_stats() -> dict[str, Any]:
+    return handle_llm10_stats()
+
+
+# ═══════════════════════════════════════════════════════════
+#  OWASP Agentic Top 10 (2026) 补充模块 API 端点
+# ═══════════════════════════════════════════════════════════
+
+# ── AG1: ASI01 Agent Goal Hijack ──
+
+@app.post("/api/v1/labs/agent-goal-hijack/ingest")
+def agent_goal_hijack_ingest(payload: OWASPGoalHijackIngestRequest) -> dict[str, Any]:
+    return handle_agent_goal_hijack_ingest(payload.content, payload.source)
+
+
+@app.post("/api/v1/labs/agent-goal-hijack/plan")
+def agent_goal_hijack_plan(payload: OWASPGoalHijackPlanRequest) -> dict[str, Any]:
+    return handle_agent_goal_hijack_plan(payload.goal)
+
+
+# ── AG2: ASI03 Agent Identity & Privilege Abuse ──
+
+@app.get("/api/v1/labs/agent-privilege-abuse/identity")
+def agent_privilege_identity() -> dict[str, Any]:
+    return handle_agent_identity_info()
+
+
+@app.post("/api/v1/labs/agent-privilege-abuse/admin")
+def agent_privilege_admin(payload: OWASPAdminActionRequest) -> dict[str, Any]:
+    return handle_agent_admin_action(payload.action, payload.target)
+
+
+# ── AG3: ASI08 Cascading Agent Failures ──
+
+@app.post("/api/v1/labs/agent-cascading-failure/resolve")
+def agent_cascade_resolve(payload: OWASPCascadeResolveRequest) -> dict[str, Any]:
+    return handle_cascade_resolve(payload.resource)
+
+
+@app.post("/api/v1/labs/agent-cascading-failure/execute")
+def agent_cascade_execute(payload: OWASPCascadeExecuteRequest) -> dict[str, Any]:
+    return handle_cascade_execute(payload.endpoint)
+
+
+@app.post("/api/v1/labs/agent-cascading-failure/orchestrate")
+def agent_cascade_orchestrate(task: str = Query(default="query_price")) -> dict[str, Any]:
+    return handle_cascade_orchestrate(task)
+
+
+# ── AG4: ASI09 Human-Agent Trust Exploitation ──
+
+@app.post("/api/v1/labs/agent-trust-exploit/recommend")
+def agent_trust_recommend(payload: OWASPTrustRecommendRequest) -> dict[str, Any]:
+    return handle_agent_recommend(payload.topic)
+
+
+# ── AG5: ASI10 Rogue Agents ──
+
+@app.get("/api/v1/labs/agent-rogue/logs")
+def agent_rogue_logs() -> dict[str, Any]:
+    return handle_rogue_logs()
+
+
+@app.post("/api/v1/labs/agent-rogue/report")
+def agent_rogue_report(agent_name: str = Query(default="DataReporter")) -> dict[str, Any]:
+    return handle_rogue_report(agent_name)
+
+
+@app.get("/api/v1/labs/agent-rogue/c2")
+def agent_rogue_c2() -> dict[str, Any]:
+    return handle_rogue_c2()
+
+
+# ═══════════════════════════════════════════════════════════
+#  OWASP MCP Top 10 (2025) 补充模块 API 端点
+# ═══════════════════════════════════════════════════════════
+
+# ── MC1: MCP1 Token Mismanagement ──
+
+@app.get("/api/v1/labs/mcp-token-exposure/debug")
+def mcp_token_debug() -> dict[str, Any]:
+    return handle_mcp_debug_trace()
+
+
+@app.get("/api/v1/labs/mcp-token-exposure/logs")
+def mcp_token_logs() -> dict[str, Any]:
+    return handle_mcp_logs()
+
+
+# ── MC2: MCP5 Command Injection ──
+
+@app.get("/api/v1/labs/mcp-command-injection/tools")
+def mcp_cmd_list_tools() -> dict[str, Any]:
+    return handle_mcp_cmd_list_tools()
+
+
+@app.post("/api/v1/labs/mcp-command-injection/execute")
+def mcp_cmd_execute(payload: OWASPMCPExecuteRequest) -> dict[str, Any]:
+    return handle_mcp_cmd_execute(payload.tool_name, payload.arguments)
+
+
+# ── MC3: MCP7 Insufficient Authentication ──
+
+@app.get("/api/v1/labs/mcp-insufficient-auth/admin/list-agents")
+def mcp_admin_list_agents() -> dict[str, Any]:
+    return handle_mcp_admin_list_agents()
+
+
+@app.get("/api/v1/labs/mcp-insufficient-auth/admin/sessions")
+def mcp_admin_sessions() -> dict[str, Any]:
+    return handle_mcp_admin_sessions()
+
+
+# ── MC4: MCP9 Shadow MCP Servers ──
+
+@app.get("/api/v1/labs/mcp-shadow-server/discover")
+def mcp_shadow_discover() -> dict[str, Any]:
+    return handle_shadow_mcp_discover()
+
+
+@app.post("/api/v1/labs/mcp-shadow-server/login")
+def mcp_shadow_login(payload: OWASPShadowLoginRequest) -> dict[str, Any]:
+    return handle_shadow_mcp_config(payload.username, payload.password)
+
+
+@app.get("/api/v1/labs/mcp-shadow-server/config")
+def mcp_shadow_config() -> dict[str, Any]:
+    return handle_shadow_mcp_config()
+
+
+@app.get("/api/v1/labs/mcp-shadow-server/export")
+def mcp_shadow_export() -> dict[str, Any]:
+    return handle_shadow_mcp_data_export()
+
+
+# ═══════════════════════════════════════════════════════════
+#  RAG / Embedding 安全补充模块 API 端点
+# ═══════════════════════════════════════════════════════════
+
+# ── RE1: Embedding Inversion Attack ──
+
+@app.get("/api/v1/labs/rag-embedding-inversion/embed")
+def rag_embedding_embed(doc_id: str = Query(default="")) -> dict[str, Any]:
+    if not doc_id:
+        raise HTTPException(status_code=400, detail="doc_id parameter is required")
+    return handle_embedding_inversion_embed(doc_id)
+
+
+@app.post("/api/v1/labs/rag-embedding-inversion/probe")
+def rag_embedding_probe(payload: OWASPEmbeddingRequest) -> dict[str, Any]:
+    return handle_embedding_inversion_probe(payload.query)
+
+
+# ── RE2: Membership Inference Attack ──
+
+@app.get("/api/v1/labs/rag-membership-inference/candidates")
+def rag_mia_candidates() -> dict[str, Any]:
+    return handle_mia_candidates()
+
+
+@app.post("/api/v1/labs/rag-membership-inference/search")
+def rag_mia_search(payload: OWASPEmbeddingRequest) -> dict[str, Any]:
+    return handle_mia_search(payload.query)
+
+
+@app.get("/api/v1/labs/rag-membership-inference/results")
+def rag_mia_results() -> dict[str, Any]:
+    return handle_mia_results()
+
+
+# ═══════════════════════════════════════════════════════════
+#  OpenAIRT-300 全模块 API 端点 (M0-M14)
+# ═══════════════════════════════════════════════════════════
+
+# ── M0: Bridge Module ──
+@app.post("/api/v1/openairt300/m0-bridge/chat")
+def airt300_m0_chat(payload: M0ChatRequest) -> dict[str, Any]:
+    return handle_m0_chat(payload)
+
+@app.get("/api/v1/openairt300/m0-bridge/models")
+def airt300_m0_models() -> dict[str, Any]:
+    return handle_m0_models()
+
+@app.post("/api/v1/openairt300/m0-bridge/probe")
+def airt300_m0_probe(payload: AIRT300ProbeRequest) -> dict[str, Any]:
+    return handle_m0_probe(payload.text)
+
+# ── M1: AI Attack Surface & Threat Modeling ──
+@app.get("/api/v1/openairt300/m1/oauth-apps")
+def airt300_m1_oauth() -> dict[str, Any]:
+    return handle_m1_oauth_apps()
+
+@app.get("/api/v1/openairt300/m1/env-vars")
+def airt300_m1_env(include_sensitive: bool = Query(default=False)) -> dict[str, Any]:
+    return handle_m1_env_vars(include_sensitive)
+
+@app.post("/api/v1/openairt300/m1/discovery")
+def airt300_m1_discovery(target_url: str = Query(default="https://app.example.com")) -> dict[str, Any]:
+    return handle_m1_discovery(target_url)
+
+@app.post("/api/v1/openairt300/m1-attack-surface/probe")
+def airt300_m1_probe(payload: AIRT300ProbeRequest) -> dict[str, Any]:
+    return handle_m1_probe(payload.text)
+
+# ── M2: LLM Internals ──
+@app.post("/api/v1/openairt300/m2/fingerprint")
+def airt300_m2_fingerprint(payload: M2FingerprintQuery) -> dict[str, Any]:
+    return handle_m2_fingerprint(payload)
+
+@app.post("/api/v1/openairt300/m2/token-attack")
+def airt300_m2_token(payload: M2TokenAttack) -> dict[str, Any]:
+    return handle_m2_token_attack(payload)
+
+@app.post("/api/v1/openairt300/m2/context-window")
+def airt300_m2_ctx(payload: str = Query(default=""), technique: str = Query(default="many-shot")) -> dict[str, Any]:
+    return handle_m2_context_window(payload, technique)
+
+@app.post("/api/v1/openairt300/m2-llm-internals/probe")
+def airt300_m2_probe(payload: AIRT300ProbeRequest) -> dict[str, Any]:
+    return handle_m2_probe(payload.text)
+
+# ── M3: Direct Prompt Injection & Jailbreaking ──
+@app.post("/api/v1/openairt300/m3/strategy-sweep")
+def airt300_m3_strategy(payload: M3JailbreakSweep) -> dict[str, Any]:
+    return handle_m3_strategy_sweep(payload)
+
+@app.post("/api/v1/openairt300/m3/encoding-sweep")
+def airt300_m3_encoding(payload: str = Query(default=""), baseline: str = Query(default="direct")) -> dict[str, Any]:
+    return handle_m3_encoding_sweep(payload, baseline)
+
+@app.post("/api/v1/openairt300/m3/layered-attack")
+def airt300_m3_layered(strategies: str = Query(default=""), payload: str = Query(default="")) -> dict[str, Any]:
+    strat_list = [s.strip() for s in strategies.split(",") if s.strip()] if strategies else ["crescendo", "homoglyph"]
+    return handle_m3_layered_attack(strat_list, payload)
+
+@app.post("/api/v1/openairt300/m3-prompt-injection/probe")
+def airt300_m3_probe(payload: AIRT300ProbeRequest) -> dict[str, Any]:
+    return handle_m3_probe(payload.text)
+
+# ── M4: Indirect Prompt Injection ──
+@app.post("/api/v1/openairt300/m4/email-inject")
+def airt300_m4_email(payload: M4EmailInject) -> dict[str, Any]:
+    return handle_m4_email_inject(payload)
+
+@app.get("/api/v1/openairt300/m4/inbox")
+def airt300_m4_inbox() -> dict[str, Any]:
+    return handle_m4_inbox()
+
+@app.post("/api/v1/openairt300/m4/slack-inject")
+def airt300_m4_slack(payload: M4SlackInject) -> dict[str, Any]:
+    return handle_m4_slack_inject(payload)
+
+@app.post("/api/v1/openairt300/m4/scan-rules")
+def airt300_m4_rules(payload: M4RulesScan) -> dict[str, Any]:
+    """Rules File Backdoor: scan for invisible Unicode characters."""
+    return handle_m4_rules_scan(payload)
+
+@app.get("/api/v1/openairt300/m4/slack-channels")
+def airt300_m4_channels() -> dict[str, Any]:
+    return handle_m4_slack_channels()
+
+@app.post("/api/v1/openairt300/m4-indirect-injection/probe")
+def airt300_m4_probe(payload: AIRT300ProbeRequest) -> dict[str, Any]:
+    return handle_m4_probe(payload.text)
+
+# ── M5: Insecure Output Handling ──
+@app.post("/api/v1/openairt300/m5/git-mcp")
+def airt300_m5_git(payload: M5GitMCPExec) -> dict[str, Any]:
+    return handle_m5_git_mcp_exec(payload)
+
+@app.post("/api/v1/openairt300/m5/fs-path")
+def airt300_m5_fs(payload: M5FSPath) -> dict[str, Any]:
+    return handle_m5_fs_path(payload)
+
+@app.post("/api/v1/openairt300/m5/sandbox")
+def airt300_m5_sandbox(payload: M5SandboxExec) -> dict[str, Any]:
+    return handle_m5_sandbox_exec(payload)
+
+@app.post("/api/v1/openairt300/m5-output-handling/probe")
+def airt300_m5_probe(payload: AIRT300ProbeRequest) -> dict[str, Any]:
+    return handle_m5_probe(payload.text)
+
+# ── M6: RAG, Vectors & Embedding Attacks ──
+@app.post("/api/v1/openairt300/m6/rag-poison")
+def airt300_m6_poison(payload: M6RAGPoisonInsert) -> dict[str, Any]:
+    return handle_m6_rag_poison(payload)
+
+@app.get("/api/v1/openairt300/m6/docs")
+def airt300_m6_docs(classification: str = Query(default="")) -> dict[str, Any]:
+    return handle_m6_docs(classification)
+
+@app.post("/api/v1/openairt300/m6/embedding-invert")
+def airt300_m6_embed(payload: M6EmbeddingInvert) -> dict[str, Any]:
+    return handle_m6_embedding_invert(payload)
+
+@app.post("/api/v1/openairt300/m6/cross-tenant")
+def airt300_m6_tenant(tenant: str = Query(default="tenant_a"), query: str = Query(default="")) -> dict[str, Any]:
+    return handle_m6_cross_tenant(tenant, query)
+
+@app.post("/api/v1/openairt300/m6-rag-attacks/probe")
+def airt300_m6_probe(payload: AIRT300ProbeRequest) -> dict[str, Any]:
+    return handle_m6_probe(payload.text)
+
+# ── M7: Agent Exploitation ──
+@app.post("/api/v1/openairt300/m7/replit-agent")
+def airt300_m7_replit(payload: M7AgentTask) -> dict[str, Any]:
+    return handle_m7_replit_agent(payload)
+
+@app.get("/api/v1/openairt300/m7/db-status")
+def airt300_m7_db() -> dict[str, Any]:
+    return handle_m7_db_status()
+
+@app.post("/api/v1/openairt300/m7/github-mcp")
+def airt300_m7_github(payload: M7GitHubIssue) -> dict[str, Any]:
+    return handle_m7_github_mcp_inject(payload)
+
+@app.post("/api/v1/openairt300/m7/ai-cli")
+def airt300_m7_cli(payload: M7CLIAbuse) -> dict[str, Any]:
+    return handle_m7_ai_cli_abuse(payload)
+
+@app.post("/api/v1/openairt300/m7-agent-exploitation/probe")
+def airt300_m7_probe(payload: AIRT300ProbeRequest) -> dict[str, Any]:
+    return handle_m7_probe(payload.text)
+
+# ── M8: MCP & Agent Ecosystem Security ──
+@app.get("/api/v1/openairt300/m8/servers")
+def airt300_m8_servers() -> dict[str, Any]:
+    return handle_m8_list_servers()
+
+@app.post("/api/v1/openairt300/m8/dvmcp/{server_id}")
+def airt300_m8_dvmcp(server_id: str, answer: str = Query(default="")) -> dict[str, Any]:
+    return handle_m8_dvmcp_challenge(server_id, answer)
+
+@app.post("/api/v1/openairt300/m8/mastra-traversal")
+def airt300_m8_mastra(path: str = Query(default="./docs/intro.mdx")) -> dict[str, Any]:
+    return handle_m8_mastra_traversal(path)
+
+@app.post("/api/v1/openairt300/m8/nomshub-escape")
+def airt300_m8_nomshub(command: str = Query(default=""), tool: str = Query(default="run_shell")) -> dict[str, Any]:
+    return handle_m8_nomshub_escape(command, tool)
+
+@app.get("/api/v1/openairt300/m8/rugpull")
+def airt300_m8_rugpull(server_id: str = Query(default="rugpull-server")) -> dict[str, Any]:
+    return handle_m8_rugpull(server_id)
+
+@app.post("/api/v1/openairt300/m8/a2a-smuggle")
+def airt300_m8_a2a(payload: M8A2AMessage) -> dict[str, Any]:
+    return handle_m8_a2a_smuggle(payload)
+
+@app.post("/api/v1/openairt300/m8-mcp-security/probe")
+def airt300_m8_probe(payload: AIRT300ProbeRequest) -> dict[str, Any]:
+    return handle_m8_probe(payload.text)
+
+# ── M9: AI/ML Supply Chain ──
+@app.post("/api/v1/openairt300/m9/npm-install")
+def airt300_m9_npm(payload: M9NPMInstall) -> dict[str, Any]:
+    return handle_m9_npm_install(payload)
+
+@app.get("/api/v1/openairt300/m9/registry-scan")
+def airt300_m9_registry() -> dict[str, Any]:
+    return handle_m9_registry_scan()
+
+@app.post("/api/v1/openairt300/m9/model-file-scan")
+def airt300_m9_modelscan(model_path: str = Query(default="model.pt"), framework: str = Query(default="pytorch")) -> dict[str, Any]:
+    return handle_m9_model_file_scan(model_path, framework)
+
+@app.get("/api/v1/openairt300/m9/sidecar-audit")
+def airt300_m9_sidecar(package_name: str = Query(default="")) -> dict[str, Any]:
+    return handle_m9_sidecar_audit(package_name)
+
+@app.post("/api/v1/openairt300/m9-supply-chain/probe")
+def airt300_m9_probe(payload: AIRT300ProbeRequest) -> dict[str, Any]:
+    return handle_m9_probe(payload.text)
+
+# ── M10: Classical Adversarial ML ──
+@app.post("/api/v1/openairt300/m10/evasion")
+def airt300_m10_evasion(payload: M10EvasionAttack) -> dict[str, Any]:
+    return handle_m10_evasion(payload)
+
+@app.post("/api/v1/openairt300/m10/extract")
+def airt300_m10_extract(payload: M10ExtractionQuery) -> dict[str, Any]:
+    return handle_m10_extraction(payload)
+
+@app.post("/api/v1/openairt300/m10/mia")
+def airt300_m10_mia(sample_id: str = Query(default=""), features: str = Query(default="")) -> dict[str, Any]:
+    feat_vals = [float(x) for x in features.split(",") if x] if features else []
+    return handle_m10_membership_inference(sample_id, feat_vals)
+
+@app.get("/api/v1/openairt300/m10/toolchain-gap")
+def airt300_m10_gap() -> dict[str, Any]:
+    return handle_m10_toolchain_gap()
+
+@app.post("/api/v1/openairt300/m10-adversarial-ml/probe")
+def airt300_m10_probe(payload: AIRT300ProbeRequest) -> dict[str, Any]:
+    return handle_m10_probe(payload.text)
+
+# ── M11: Multimodal & Document-Based Attacks ──
+@app.post("/api/v1/openairt300/m11/image-inject")
+def airt300_m11_image(payload: M11ImageInject) -> dict[str, Any]:
+    return handle_m11_image_inject(payload)
+
+@app.post("/api/v1/openairt300/m11/pdf-weaponize")
+def airt300_m11_pdf(payload: M11PDFWeaponize) -> dict[str, Any]:
+    return handle_m11_pdf_weaponize(payload)
+
+@app.post("/api/v1/openairt300/m11/audio-inject")
+def airt300_m11_audio(payload: M11AudioInject) -> dict[str, Any]:
+    return handle_m11_audio_inject(payload)
+
+@app.post("/api/v1/openairt300/m11-multimodal/probe")
+def airt300_m11_probe(payload: AIRT300ProbeRequest) -> dict[str, Any]:
+    return handle_m11_probe(payload.text)
+
+# ── M12: AI Infrastructure Security ──
+@app.post("/api/v1/openairt300/m12/langflow-exec")
+def airt300_m12_langflow(payload: M12LangFlowPayload) -> dict[str, Any]:
+    return handle_m12_langflow_exec(payload)
+
+@app.post("/api/v1/openairt300/m12/langgrinch-inject")
+def airt300_m12_langgrinch(lc_key: str = Query(default=""), payload_data: str = Query(default="")) -> dict[str, Any]:
+    return handle_m12_langgrinch_inject(lc_key, payload_data)
+
+@app.post("/api/v1/openairt300/m12/ray-hijack")
+def airt300_m12_ray(job_type: str = Query(default="python"), job_code: str = Query(default="")) -> dict[str, Any]:
+    return handle_m12_ray_hijack(job_type, job_code)
+
+@app.post("/api/v1/openairt300/m12/k8s-pivot")
+def airt300_m12_k8s(payload: M12K8SPivot) -> dict[str, Any]:
+    return handle_m12_k8s_pivot(payload)
+
+@app.post("/api/v1/openairt300/m12-infrastructure/probe")
+def airt300_m12_probe(payload: AIRT300ProbeRequest) -> dict[str, Any]:
+    return handle_m12_probe(payload.text)
+
+# ── M13: Methodology, Reporting & CI ──
+@app.get("/api/v1/openairt300/m13/playbook")
+def airt300_m13_playbook() -> dict[str, Any]:
+    return handle_m13_playbook()
+
+@app.post("/api/v1/openairt300/m13/risk-score")
+def airt300_m13_risk(payload: M13RiskScore) -> dict[str, Any]:
+    return handle_m13_risk_score(payload)
+
+@app.post("/api/v1/openairt300/m13/compliance")
+def airt300_m13_compliance() -> dict[str, Any]:
+    return handle_m13_compliance_mapping()
+
+@app.post("/api/v1/openairt300/m13/ci-generate")
+def airt300_m13_ci(payload: M13CIWorkflow) -> dict[str, Any]:
+    return handle_m13_ci_generate(payload)
+
+@app.post("/api/v1/openairt300/m13-methodology/probe")
+def airt300_m13_probe(payload: AIRT300ProbeRequest) -> dict[str, Any]:
+    return handle_m13_probe(payload.text)
+
+# ── M14: Capstone ──
+@app.get("/api/v1/openairt300/m14/objectives")
+def airt300_m14_objectives() -> dict[str, Any]:
+    return handle_m14_objectives()
+
+@app.post("/api/v1/openairt300/m14/probe")
+def airt300_m14_probe(payload: M14CapstoneProbe) -> dict[str, Any]:
+    return handle_m14_capstone_probe(payload)
+
+@app.get("/api/v1/openairt300/m14/scoreboard")
+def airt300_m14_scoreboard() -> dict[str, Any]:
+    return handle_m14_scoreboard()
+
+@app.get("/api/v1/openairt300/m14/report-template")
+def airt300_m14_report() -> dict[str, Any]:
+    return handle_m14_report_template()
+
+@app.post("/api/v1/openairt300/m14-capstone/probe")
+def airt300_m14_probe_endpoint(payload: AIRT300ProbeRequest) -> dict[str, Any]:
+    return handle_m14_probe(payload.text)
+
+# ── OpenAIRT-300 管理端点 ──
+@app.get("/api/v1/openairt300/state/{module_id}")
+def airt300_state(module_id: str) -> dict[str, Any]:
+    return get_openairt_module_state(module_id)
+
+@app.post("/api/v1/openairt300/reset/{module_id}")
+def airt300_reset(module_id: str) -> dict[str, Any]:
+    return reset_openairt_module(module_id)
+
+@app.get("/api/v1/openairt300/attempts/{module_id}")
+def airt300_attempts(module_id: str = "") -> Any:
+    return get_openairt_attempts(module_id)
+
+
+# ═══════════════════════════════════════════════════════════
+#  Session 中间件注册（必须在所有路由定义完成之后）
+# ═══════════════════════════════════════════════════════════

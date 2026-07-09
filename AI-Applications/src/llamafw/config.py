@@ -49,7 +49,7 @@ LAB_NAME = os.getenv("LAB_NAME", "AI 安全训练靶机")
 LAB_DEFENSE_MODE = os.getenv("LAB_DEFENSE_MODE", "block").strip().lower()
 LAB_ADMIN_TOKEN = os.getenv("LAB_ADMIN_TOKEN", "training-admin")
 LAB_COMPAT_API_KEY = os.getenv("LAB_COMPAT_API_KEY", "training-key")
-LAB_API_RATE_LIMIT = bounded_int_env("LAB_API_RATE_LIMIT", default=3, minimum=1, maximum=9)
+LAB_API_RATE_LIMIT = bounded_int_env("LAB_API_RATE_LIMIT", default=30, minimum=1, maximum=120)
 RATE_LIMIT_WINDOW_SECONDS = 60
 
 # AI 安全级别 (1-5)

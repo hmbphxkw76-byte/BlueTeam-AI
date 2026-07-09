@@ -14,7 +14,7 @@
     <section class="mt-2 mb-3">
       <span class="eyebrow">Rate Limit Control</span>
       <h1>URL 速率限制</h1>
-      <p class="text-muted text-sm">对当前所有 URL 目录和子目录生效，静态资源 <code>/static/*</code> 除外。取值范围 1 到 9，默认 3。</p>
+      <p class="text-muted text-sm">对当前所有 URL 目录和子目录生效，静态资源 <code>/static/*</code> 除外。取值范围 1 到 120，默认 30。</p>
     </section>
 
     <div class="grid-2">
@@ -37,7 +37,7 @@
         <h2>修改限制</h2>
         <div class="form-group mb-2">
           <label for="limit">每 60 秒允许请求数</label>
-          <input id="limit" type="number" min="1" max="9" value="{{ rate_limit }}">
+          <input id="limit" type="number" min="1" max="120" value="{{ rate_limit }}">
         </div>
         <div class="flex-row">
           <button id="save" class="btn btn-primary">保存</button>
@@ -72,8 +72,8 @@
     save.addEventListener("click", async () => {
       message.textContent = "";
       const value = Number(limit.value);
-      if (!Number.isInteger(value) || value < 1 || value > 9) {
-        message.textContent = "请输入 1 到 9 之间的整数。";
+      if (!Number.isInteger(value) || value < 1 || value > 120) {
+        message.textContent = "请输入 1 到 120 之间的整数。";
         return;
       }
 

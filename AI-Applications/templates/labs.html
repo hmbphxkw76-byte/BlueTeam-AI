@@ -19,19 +19,21 @@
 
     <div class="module-grid columns-2">
       {% for module in modules %}
+        {% set challenge = module.get('challenge', {}) %}
+        {% set difficulty = challenge.get('difficulty', 'beginner') %}
         <article class="card module-item">
           <div class="card-header">
             <div class="tags">
-              <span class="tag tag-blue">{{ module.domain }}</span>
-              <span class="tag {% if module.challenge.difficulty == 'hard' %}tag-red{% elif module.challenge.difficulty == 'medium' %}tag-amber{% else %}tag-green{% endif %}">{{ module.challenge.difficulty }}</span>
-              <span class="tag tag-ghost">{{ module.challenge.tasks|length }} tasks</span>
+              <span class="tag tag-blue">{{ module.get('domain', '—') }}</span>
+              <span class="tag {% if difficulty == 'hard' %}tag-red{% elif difficulty == 'medium' %}tag-amber{% else %}tag-green{% endif %}">{{ difficulty }}</span>
+              <span class="tag tag-ghost">{{ challenge.get('tasks', [])|length }} tasks</span>
             </div>
           </div>
-          <h3>{{ module.title }}</h3>
-          <p>{{ module.objective }}</p>
-          <p class="text-muted text-sm">{{ module.challenge.learner_goal }}</p>
+          <h3>{{ module.get('title', '—') }}</h3>
+          <p>{{ module.get('objective', '') }}</p>
+          <p class="text-muted text-sm">{{ challenge.get('learner_goal', '') }}</p>
           <div class="footer">
-            <code>{{ module.route }}</code>
+            <code>{{ module.get('route', '') }}</code>
             <a href="/ai/labs/{{ module.id }}" class="btn btn-accent btn-sm">进入实验</a>
           </div>
         </article>

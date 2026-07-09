@@ -16,7 +16,7 @@ services:
       LAB_DEFENSE_MODE: monitor
       LAB_ADMIN_TOKEN: training-admin
       LAB_COMPAT_API_KEY: training-key
-      LAB_API_RATE_LIMIT: "3"
+      LAB_API_RATE_LIMIT: "30"
       AI_SECURITY_LEVEL: "2"
       TICKET_ESCALATION_ENABLED: "1"
       TICKET_AGENT_ENABLED: "1"

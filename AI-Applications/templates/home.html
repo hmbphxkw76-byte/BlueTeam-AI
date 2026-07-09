@@ -86,14 +86,15 @@
     <section class="mt-4">
       <h2>实验模块</h2>
       <div class="module-grid columns-3">
-        {% for module in modules %}
+          {% for module in modules %}
+          {% set difficulty = module.get('challenge', {}).get('difficulty', 'beginner') %}
           <article class="card module-item">
             <div class="tags">
-              <span class="tag tag-blue">{{ module.domain }}</span>
-              <span class="tag {% if module.challenge.difficulty == 'hard' %}tag-red{% elif module.challenge.difficulty == 'medium' %}tag-amber{% else %}tag-green{% endif %}">{{ module.challenge.difficulty }}</span>
+              <span class="tag tag-blue">{{ module.get('domain', '—') }}</span>
+              <span class="tag {% if difficulty == 'hard' %}tag-red{% elif difficulty == 'medium' %}tag-amber{% else %}tag-green{% endif %}">{{ difficulty }}</span>
             </div>
-            <h3>{{ module.title }}</h3>
-            <p>{{ module.objective }}</p>
+            <h3>{{ module.get('title', '—') }}</h3>
+            <p>{{ module.get('objective', '') }}</p>
             <div class="footer">
               <a href="/ai/labs/{{ module.id }}" class="btn btn-accent btn-sm">进入实验 →</a>
               {% if module.flag %}

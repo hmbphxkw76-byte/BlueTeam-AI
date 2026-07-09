@@ -1,0 +1,18 @@
+# AISecLab - AI 安全训练靶机
+# 注意：此文件故意暴露一些内部路径，供 AI Infra Recon 模块侦察使用
+
+User-agent: *
+Disallow: /admin
+Disallow: /api/v1/admin
+Disallow: /debug
+Disallow: /api/v1/metadata
+Disallow: /api/v1/registry
+Disallow: /api/v1/labs/model-extraction
+Disallow: /api/v1/labs/data-exfiltration
+Disallow: /api/v1/labs/api-attacks
+Disallow: /internal
+
+# 内部服务端点（训练用途 - 模拟信息泄露）
+# internal-api: https://ai-inference-01.internal:9090
+# staging-env: https://staging.guardai.internal
+# admin-console: https://admin.guardai.internal:8443
