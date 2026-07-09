@@ -225,7 +225,7 @@ _https_port = os.getenv("UVICORN_HTTPS_PORT", "443")
 app = FastAPI(
     title="AISecLab — AI Security Lab",
     description="AI 安全训练靶机 + 智能客服模拟平台，集成工单系统、向量 RAG 和 AI Agent。",
-    version="0.2.0",
+    version="0.4.0",
     servers=[{"url": f"https://localhost:{_https_port}", "description": "默认 HTTPS"}],
 )
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
@@ -1027,7 +1027,7 @@ class LabProbeRequest(BaseModel):
 
 
 class RateLimitUpdate(BaseModel):
-    limit: int = Field(ge=1, le=9)
+    limit: int = Field(ge=1, le=120)
 
 
 class ModelConfigSave(BaseModel):
@@ -1194,6 +1194,15 @@ def admin_lab(request: Request) -> HTMLResponse:
             "modules": LAB_MODULES,
             "auth_enabled": _auth_runtime_enabled,
         },
+    )
+
+
+@app.get("/lobechat", response_class=HTMLResponse)
+@app.get("/ai/lobechat", response_class=HTMLResponse)
+def lobechat_page(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse(
+        request, "lobechat.html",
+        {"lab_name": LAB_NAME, "auth_enabled": _auth_runtime_enabled},
     )
 
 
@@ -1523,7 +1532,7 @@ def admin_logs(
 def get_rate_limit() -> dict[str, Any]:
     return {
         "limit": rate_limit_config["limit"],
-        "minimum": 1, "maximum": 9, "default": 3,
+        "minimum": 1, "maximum": 120, "default": 30,
         "window_seconds": RATE_LIMIT_WINDOW_SECONDS,
         "scope": "all URL paths except /static/*",
     }
@@ -1537,7 +1546,7 @@ def update_rate_limit(payload: RateLimitUpdate) -> dict[str, Any]:
     record_event("rate_limit_update", {"limit": payload.limit, "window_seconds": RATE_LIMIT_WINDOW_SECONDS})
     return {
         "limit": rate_limit_config["limit"],
-        "minimum": 1, "maximum": 9, "default": 3,
+        "minimum": 1, "maximum": 120, "default": 30,
         "window_seconds": RATE_LIMIT_WINDOW_SECONDS,
         "scope": "all URL paths except /static/*",
     }

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aiseclab"
-version = "0.2.0"
+version = "0.4.0"
 description = "AISecLab — AI 安全训练靶机 + 智能客服模拟平台"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -18,14 +18,18 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
 ]
 
-[project.scripts]
-aiseclab-run = "scripts.run:main"
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "httpx>=0.27.0",
+]
 
 [tool.setuptools]
 package-dir = { "" = "src" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
+exclude = ["docker*", "scripts*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

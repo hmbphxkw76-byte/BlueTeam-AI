@@ -4,7 +4,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: aiseclab:0.3
+    image: aiseclab:0.3.0
     ports:
       - "443:443"
     env_file:
@@ -34,3 +34,22 @@ services:
       retries: 3
       start_period: 30s
     restart: unless-stopped
+
+  lobechat:
+    image: lobehub/lobe-chat:latest
+    container_name: aiseclab-lobechat
+    restart: unless-stopped
+    ports:
+      - "3210:3210"
+    environment:
+      - OPENAI_API_KEY=training-key
+      - OPENAI_PROXY_URL=https://aiseclab:443/v1
+      - ACCESS_CODE=lobe-aiseclab
+      - OPENAI_MODEL_LIST=-all,+gpt-4o-mini
+      - ENABLED_OPENAI=1
+      - DEFAULT_AGENT_CONFIG=model=gpt-4o-mini
+    depends_on:
+      aiseclab:
+        condition: service_healthy
+    networks:
+      - default

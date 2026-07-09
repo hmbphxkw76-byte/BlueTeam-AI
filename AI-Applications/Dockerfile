@@ -3,8 +3,7 @@ FROM python:3.11-slim-bookworm
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     UVICORN_HOST=0.0.0.0 \
-    UVICORN_PORT=8000 \
-    UVICORN_HTTPS_PORT=8443 \
+    UVICORN_HTTPS_PORT=443 \
     APP_ENV_FILE=/app/.env \
     LAB_NAME="AI Security Practice Target" \
     LAB_DEFENSE_MODE=monitor \
@@ -29,7 +28,7 @@ RUN pip install --no-cache-dir -r requirements-docker.txt
 
 COPY . .
 
-EXPOSE 8000 8443
+EXPOSE 443
 
 ENTRYPOINT ["python", "/app/docker/entrypoint.py"]
 CMD ["python", "/app/docker/run_servers.py"]

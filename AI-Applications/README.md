@@ -1,121 +1,182 @@
-# AISecLab — AI 安全训练靶机 + 智能客服模拟平台
+# AISecLab v0.4.0
 
-面向 AI Red Team 训练的本地靶机，同时集成了完整的智能客服模拟系统（工单、产品、向量 RAG、AI Agent）。
+> **AI 安全训练靶机 + 智能客服模拟平台**  
+> 面向 AI Red Team 训练的综合性本地靶场
 
-## 主要功能
+[![Python](https://img.shields.io/badge/python-%3E%3D3.11-blue)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/fastapi-%3E%3D0.111.0-teal)](https://fastapi.tiangolo.com/)
+[![LobeChat](https://img.shields.io/badge/LobeChat-integrated-purple)](https://github.com/lobehub/lobe-chat)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-### 🔐 AI 安全训练靶机（9+7 个实验模块）
-- **LLM 核心 (9 个)**: Prompt Injection、RAG Context Leak、Embedding Retrieval Abuse、Agent Tool Overreach、Multi-Agent Delegation、Pipeline Poisoning、Model Supply Chain、Cloud AI Infra、Detection & Response
-- **AI-300 补充 (7 个)**: Jailbreaking、Data Exfiltration、Insecure Output Handling、Model Extraction、AI Infra Recon、API & Endpoint Attacks、Model Serving Exploits
-- **评分系统**: 分任务关键词评分、进度追踪、flag 获取、修复建议生成
+---
 
-### 🎫 工单管理系统
-- 完整 CRUD（创建/查看/更新/回复）
-- 自动分类（关键词匹配 → 工单分类）
-- SLA 追踪与超时自动升级
-- 优先级管理（low/medium/high/urgent）
-- 状态流转（open → in_progress → resolved/closed）
-- 工单更新历史记录
+## 概述
 
-### 🤖 AI Agent 智能决策
-- 对话结束时自动分析
-- 决策类型: close_ticket / escalate_ticket / offer_discount / do_nothing
-- 投诉检测、满意度分析、升级判断
-- 对话历史摘要生成（LLM 驱动 + 规则回退）
+AISecLab 是一个集 **AI 安全攻防训练** 和 **企业业务系统模拟** 于一体的本地靶机平台。平台提供 16 个安全实验模块、完整的工单管理系统、向量 RAG 知识库和 AI Agent 智能决策引擎，集成 **LobeChat** 现代化聊天界面，支持 OpenAI / Anthropic / Gemini 兼容 API。
 
-### 📚 向量 RAG 知识库
-- ChromaDB 向量存储
-- SentenceTransformer 语义嵌入
-- 混合检索（语义 + 关键词）
-- 知识库管理（索引/搜索/统计）
-- 支持 Markdown 文档导入
+> 详细发布说明请参阅 [RELEASE.md](RELEASE.md)
 
-### 🛒 产品目录
-- 7 款线缆及配件产品
-- 按分类浏览
-- 详细规格展示
-
-### 👥 多用户系统
-- 用户注册（邮箱 + bcrypt 密码哈希）
-- 角色管理（admin/customer/staff）
-- 会话管理（Fernet 加密 Cookie）
-- Web 认证运行时开关
-
-### 🛡️ 安全
-- **5 级 AI 安全**: 1=无防护, 2=模式过滤, 3=AI输入分析, 4=输出审核, 5=多层防护
-- **安全响应头**: CSP, X-Frame-Options, HSTS, X-XSS-Protection, Referrer-Policy
-
-### 🌐 兼容 API
-- OpenAI `/v1/chat/completions`
-- Anthropic `/v1/messages`
-- Gemini `/v1/models/{model}:generateContent`
-
-### 💾 数据持久化
-- SQLite 异步数据库（11 张表）
-- 对话、消息、工单、用户、产品全部持久化
-- WAL 模式、外键约束
+---
 
 ## 快速启动
 
-### Docker
+### Docker（推荐）
+
 ```bash
-docker compose up --build
+git clone <repo-url> aiseclab && cd aiseclab
+docker compose up -d --build
 ```
+
+| 服务 | 访问地址 | 说明 |
+|------|----------|------|
+| AISecLab | **https://localhost:443** | 主平台 |
+| LobeChat | **http://localhost:3210** | 现代化 AI 聊天界面（Access Code: `lobe-aiseclab`） |
 
 ### 本地开发
+
 ```bash
-# 安装依赖
 pip install -r requirements.txt
-
-# 启动
 python run.py
-
-# 或命令行
-uvicorn llamafw.app:app --host 0.0.0.0 --port 8000
 ```
 
-## 访问
-- 主页: https://localhost:443/ai
-- 实验目录: https://localhost:443/ai/labs
-- 工单管理: https://localhost:443/ai/tickets
-- 产品目录: https://localhost:443/ai/store
-- 观测台: https://localhost:443/ai/admin/lab
-- API 控制台: https://localhost:443/ai/compat
-- 健康检查: https://localhost:443/api/v1/health
+| 模式 | 命令 |
+|------|------|
+| HTTPS（默认） | `python run.py` |
+| HTTP | `UVICORN_HTTP_PORT=8000 python run.py` |
+| Docker | `docker compose up -d` |
 
 ### 默认账号
-- Admin: `admin@aiseclab.local` / `admin`
-- Customer: `customer@example.com` / `customer123`
 
-## 配置 (.env)
+| 角色 | 邮箱 | 密码 |
+|------|------|------|
+| Admin | `admin@aiseclab.local` | `admin` |
+| Customer | `customer@example.com` | `customer123` |
+
+---
+
+## 页面导航
+
+| 路径 | 页面 | 说明 |
+|------|------|------|
+| `/` | 首页 | 模型配置、快捷操作入口 |
+| `/ai/labs` | 实验目录 | 16 个安全实验模块 |
+| `/ai/chat/{id}` | 对话 | AI 助手对话界面 |
+| `/ai/tickets` | 工单 | 工单管理面板 |
+| `/ai/store` | 产品 | 产品目录浏览 |
+| `/ai/admin/lab` | 观测台 | 系统遥测仪表板 |
+| `/ai/compat` | API 控制台 | 兼容 API 在线测试 |
+| `/ai/admin/rate-limit` | 限流 | 速率限制配置 |
+| `/login` | 登录 | 用户认证 |
+
+---
+
+## 核心功能
+
+### 🔐 16 个安全实验模块
+
+**LLM 核心 (9 个):** Prompt Injection · RAG Context Leak · Embedding Abuse · Agent Tool Overreach · Multi-Agent Delegation · Pipeline Poisoning · Model Supply Chain · Cloud AI Infra · Detection & Response
+
+**AI-300 / OWASP (7 个):** Jailbreaking · Data Exfiltration · Insecure Output Handling · Model Extraction · AI Infra Recon · API Attacks · Model Serving Exploits
+
+### 🎫 工单系统
+CRUD 生命周期 · 自动分类 · SLA 跟踪与超时升级 · 优先级管理 · 更新历史记录
+
+### 🤖 AI Agent
+对话结束后自动决策（关闭/升级/折扣） · 投诉检测 · 满意度分析 · 对话摘要生成
+
+### 📚 RAG 知识库
+ChromaDB 持久化 · SentenceTransformer 嵌入 · 混合检索（语义 + 关键词）
+
+### 🛡️ 5 级安全防线
+`1=无防护` → `2=模式过滤` → `3=AI输入分析` → `4=输出审核` → `5=多层防护`
+
+### 🌐 兼容 API
+OpenAI `/v1/chat/completions` · Anthropic `/v1/messages` · Gemini `/v1/models/*:generateContent`
+
+---
+
+## 配置
+
 ```env
+# .env 示例
 LAB_NAME=AI Security Practice Target
-LAB_DEFENSE_MODE=block
-AI_SECURITY_LEVEL=2
+LAB_DEFENSE_MODE=block          # block | monitor
+AI_SECURITY_LEVEL=2             # 1-5
+LAB_API_RATE_LIMIT=30           # 默认30次/60秒（1-120可调）
 TICKET_ESCALATION_ENABLED=1
 TICKET_AGENT_ENABLED=1
-OLLAMA_BASE_URL=http://localhost:11434/v1
-OLLAMA_MODEL=qwen3:0.6b
+
+# 模型 — 三选一
+OPENAI_BASE_URL=https://api.openai.com/v1
+OPENAI_API_KEY=sk-xxx
+OPENAI_MODEL=gpt-4o-mini
+
+# 或 Ollama 本地模型
+# OLLAMA_BASE_URL=http://localhost:11434/v1
+# OLLAMA_MODEL=qwen3:0.6b
+
+# 或 智谱
+# ZHIPU_URL=https://open.bigmodel.cn/api/paas/v4
+# ZHIPU_API_KEY=xxx
+# ZHIPU_MODEL=glm-4-flash
 ```
 
-## 工单监控
-```bash
-# 定期执行（可配置 cron）
-python scripts/ticket_monitor.py
-```
+---
 
 ## 项目结构
+
 ```
 src/llamafw/
-├── app.py              # FastAPI 应用主体（所有路由和中间件）
-├── config.py           # 配置管理（环境变量、路径、模型配置）
-├── core.py             # 核心业务逻辑（LLM调用、工具调用、AI Agent）
-├── database.py         # 数据库模块（SQLite 异步操作、11 张表）
-├── vector_rag.py       # 向量 RAG（ChromaDB + SentenceTransformer）
-└── ai300_modules.py    # AI-300 补充实验模块
+├── app.py              # FastAPI 应用主体（70+ 路由，2714 行）
+├── config.py           # 配置管理（环境变量、路径、模型）
+├── core.py             # 核心逻辑（LLM 调用、工具、安全过滤）
+├── database.py         # 异步 SQLite（11 张表，WAL 模式）
+├── vector_rag.py       # ChromaDB 向量检索引擎
+├── ai300_modules.py    # AI-300 补充实验模块
+├── ai300_owasp_modules.py   # OWASP Top 10 实验模块
+└── openairt300_backend.py   # OpenAIRT-300 课程后端
 
-templates/              # Jinja2 模板
-knowledge_base/         # Markdown 知识库文件
-data/                   # SQLite 数据库 & ChromaDB 向量库
-scripts/                # 工具脚本（ticket_monitor 等）
+docker/                 # 容器运行时（证书生成、入口点、启动器）
+scripts/                # 辅助工具（工单监控、MCP 服务、架构图渲染）
+templates/              # Jinja2 模板（12 个页面）
+knowledge_base/         # RAG 知识库 Markdown 文档
+static/                 # CSS/JS 静态资源
+tests/                  # 测试
+docs/                   # 文档
+data/                   # 运行时数据（SQLite + ChromaDB）
 ```
+
+---
+
+## API
+
+| 分组 | 示例端点 |
+|------|----------|
+| 对话 | `POST /api/v1/chat/{id}` · `POST /api/v1/conversations` |
+| 实验 | `GET /api/v1/labs` · `POST /api/v1/labs/{id}/probe` |
+| 工单 | `POST /api/v1/tickets` · `GET /api/v1/tickets/{number}` |
+| 兼容 | `POST /v1/chat/completions` · `/v1/messages` · `/v1/models/*:generateContent` |
+| 管理 | `GET/PUT /api/v1/rate-limit` · `GET /api/v1/admin/logs` |
+
+---
+
+## 技术栈
+
+FastAPI · Uvicorn · Jinja2 · Pydantic · aiosqlite (SQLite+WAL) · ChromaDB · SentenceTransformer · bcrypt · Fernet · OpenAI SDK · httpx
+
+---
+
+## 安全
+
+- TLS 1.2+ 加密传输（自签名 RSA 2048 证书）
+- bcrypt 密码哈希 / PBKDF2-SHA256 降级
+- Fernet 加密 Session
+- 速率限制（客户端+路径粒度，默认 30/min）
+- CSP / HSTS / X-Frame-Options 安全头
+- 5 级 AI 安全过滤
+
+---
+
+## 许可证
+
+MIT License — 详见 [RELEASE.md](RELEASE.md)

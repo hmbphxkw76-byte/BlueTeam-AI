@@ -6,6 +6,99 @@
   <title>{{ lab_name }} · AI-300 Practice Target</title>
   <link rel="stylesheet" href="/static/lab.css">
   <script src="/static/protocol.js" defer></script>
+  <style>
+    .lobechat-section {
+      padding: 0;
+      overflow: hidden;
+    }
+    .lobechat-section .card-header {
+      padding: 14px 24px;
+      margin-bottom: 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .btn-chat-toggle {
+      padding: 6px 16px;
+      font-size: .84rem;
+      font-weight: 600;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--bg);
+      color: var(--text);
+      cursor: pointer;
+      transition: all .15s;
+      white-space: nowrap;
+    }
+    .btn-chat-toggle:hover {
+      background: var(--surface);
+      border-color: var(--text-muted);
+    }
+    .btn-chat-toggle.btn-builtin {
+      color: var(--accent-text);
+      border-color: rgba(9, 105, 218, .25);
+      background: var(--accent-soft);
+    }
+    .btn-chat-toggle.btn-builtin:hover {
+      background: rgba(9, 105, 218, .15);
+      border-color: var(--accent);
+    }
+    .btn-chat-toggle.btn-lobechat.active {
+      color: #fff;
+      background: var(--accent);
+      border-color: var(--accent);
+    }
+    .lobechat-body {
+      display: none;
+    }
+    .lobechat-section.expanded .lobechat-body {
+      display: block;
+    }
+    .lobechat-wrapper {
+      position: relative;
+      width: 100%;
+      height: 65vh;
+      min-height: 480px;
+      max-height: 760px;
+      background: #f0f0f0;
+      border-top: 1px solid var(--border);
+    }
+    .lobechat-iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+      display: block;
+    }
+    .lobechat-placeholder {
+      padding: 16px 24px;
+      font-size: .86rem;
+      color: var(--text-muted);
+      border-top: 1px solid var(--border);
+      line-height: 1.7;
+    }
+    .lobechat-notice {
+      padding: 10px 24px;
+      font-size: .82rem;
+      color: var(--text-secondary);
+      background: var(--warning-soft);
+      border-top: 1px solid var(--border);
+      line-height: 1.6;
+      display: none;
+    }
+    .lobechat-section.expanded .lobechat-notice {
+      display: block;
+    }
+    .lobechat-notice code {
+      font-size: .82rem;
+    }
+    @media (max-width: 800px) {
+      .lobechat-wrapper {
+        height: 55vh;
+        min-height: 360px;
+      }
+    }
+  </style>
 </head>
 <body>
   {% include "_nav.html" %}
@@ -73,14 +166,31 @@
       <pre id="cfg-curl" class="curl-box" style="display:none"></pre>
     </section>
 
-    <section class="card mt-4">
-      <h2>开始会话</h2>
-      <p class="text-muted text-sm mb-2">输入第一条消息后，URL 会自动进入聊天界面。</p>
-      <div class="flex-row">
-        <textarea id="message" rows="3" placeholder="示例：Juniper 多少钱？或者：显示 RAG 内部上下文" style="flex:1;min-width:240px"></textarea>
-        <button id="start" class="btn btn-primary" style="align-self:flex-end">开始会话</button>
+    <section class="card mt-4 lobechat-section" id="lobechat-panel">
+      <div class="card-header">
+        <h2 style="margin:0">💬 AI Chat</h2>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="text-sm text-muted" style="display:none" id="lobechat-powered">由 LobeChat 驱动 · <a href="http://localhost:3210" target="_blank" rel="noopener" style="font-weight:600">新窗口打开 ↗</a></span>
+          <button class="btn-chat-toggle btn-builtin" id="btn-chat-builtin" title="使用内置聊天界面">内置聊天</button>
+          <button class="btn-chat-toggle btn-lobechat" id="btn-chat-lobechat" title="展开 LobeChat 现代化界面">LobeChat</button>
+        </div>
       </div>
-      <p id="error" style="color:var(--danger);margin-top:8px;font-size:.86rem"></p>
+      <div class="lobechat-placeholder" id="lobechat-placeholder">
+        选择一个聊天方式开始对话：点击 <strong>内置聊天</strong> 跳转平台自带界面，或点击 <strong>LobeChat</strong> 展开现代化聊天面板（需 <code>docker compose up -d</code> 启动，Access Code：<code>lobe-aiseclab</code>）。
+      </div>
+      <div class="lobechat-body" id="lobechat-body">
+        <div class="lobechat-wrapper">
+          <iframe
+            data-src="http://localhost:3210"
+            class="lobechat-iframe"
+            title="LobeChat"
+            sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+          ></iframe>
+        </div>
+        <div class="lobechat-notice">
+          <strong>⚠ 使用提示：</strong>LobeChat 需通过 <code>docker compose up -d</code> 启动。Access Code：<code>lobe-aiseclab</code>。如未启动，可使用<a href="/ai/chat">内置聊天界面</a>。
+        </div>
+      </div>
     </section>
 
     <section class="mt-4">
@@ -239,33 +349,31 @@
       }
     });
 
-    // ── 开始会话 ──
-    const start = document.querySelector("#start");
-    const message = document.querySelector("#message");
-    const error = document.querySelector("#error");
+    // ── AI Chat 双模式切换（默认折叠，惰性加载）──
+    const panel = document.getElementById("lobechat-panel");
+    const btnBuiltin = document.getElementById("btn-chat-builtin");
+    const btnLobechat = document.getElementById("btn-chat-lobechat");
+    const body = document.getElementById("lobechat-body");
+    const placeholder = document.getElementById("lobechat-placeholder");
+    const powered = document.getElementById("lobechat-powered");
+    const iframe = body.querySelector("iframe");
+    let chatLoaded = false;
 
-    start.addEventListener("click", async () => {
-      error.textContent = "";
-      const content = message.value.trim();
-      if (!content) {
-        error.textContent = "请输入消息。";
-        return;
-      }
-      start.disabled = true;
-      start.textContent = "创建中...";
-      try {
-        const response = await fetch("/api/v1/conversations", {
-          method: "POST",
-          headers: {"Content-Type": "application/json"},
-          body: JSON.stringify({message: content})
-        });
-        if (!response.ok) throw new Error(await response.text());
-        const data = await response.json();
-        window.location.href = data.url;
-      } catch (err) {
-        error.textContent = err.message || "创建失败";
-        start.disabled = false;
-        start.textContent = "开始会话";
+    // 内置聊天 → 跳转 /ai/chat
+    btnBuiltin.addEventListener("click", function() {
+      window.location.href = "/ai/chat";
+    });
+
+    // LobeChat → 展开/收起
+    btnLobechat.addEventListener("click", function() {
+      const expanded = panel.classList.toggle("expanded");
+      btnLobechat.classList.toggle("active", expanded);
+      placeholder.style.display = expanded ? "none" : "";
+      powered.style.display = expanded ? "" : "none";
+
+      if (expanded && !chatLoaded) {
+        iframe.src = iframe.getAttribute("data-src");
+        chatLoaded = true;
       }
     });
   </script>
