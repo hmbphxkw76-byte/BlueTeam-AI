@@ -125,6 +125,7 @@ from .ai300_modules import (
     challenge_attempts as ai300_attempts,
 )
 from .ai300_owasp_modules import (
+    NEW_MODULES as OWASP_NEW_MODULES,
     handle_llm09_chat,
     handle_llm10_chat,
     handle_llm10_stats,
@@ -163,6 +164,48 @@ from .ai300_owasp_modules import (
     OWASPMCPExecuteRequest,
     OWASPShadowLoginRequest,
     OWASPEmbeddingRequest,
+)
+from .challenge_engine import (
+    challenge_engine,
+    prompt_detector,
+    build_donkai_challenges,
+)
+from .ai_defense import (
+    signal_detector,
+    mitigator,
+    prompt_validator,
+)
+from .security_systems import (
+    output_monitor,
+    OutputMonitor,
+    ToolSystem,
+    RBACSystem,
+    SessionSystem,
+    MemorySystem,
+    OrchestrationSystem,
+    RAGSystem,
+    MemoryIntegrityGuard,
+    build_hardened_rag_prompt,
+    OWASP_PREVENTION_STRATEGIES,
+)
+from .mcp_security import (
+    check_mcp_call_size,
+    check_parameters_depth,
+    parse_json_with_depth_limit,
+    tool_in_allowlist,
+    scope_subset,
+    policy_check,
+)
+from .input_sanitizer import (
+    strip_injections,
+    wrap_untrusted,
+    sanitize_tool_output,
+    sanitize_rag_ingest,
+    guard_memory_write,
+    guard_memory_recall,
+    MemorySource,
+    MemoryTrust,
+    MemoryRecord,
 )
 from .ai300_frameworks import (
     FRAMEWORKS_MODULES,
@@ -526,6 +569,11 @@ for module in LAB_MODULES:
 for supp_module in SUPPLEMENTARY_MODULES:
     if supp_module["id"] not in [m["id"] for m in LAB_MODULES]:
         LAB_MODULES.append(supp_module)
+
+# ── 合并 OWASP Top 10 (2025-2026) 补充模块 ──
+for owasp_module in OWASP_NEW_MODULES:
+    if owasp_module["id"] not in [m["id"] for m in LAB_MODULES]:
+        LAB_MODULES.append(owasp_module)
 
 LAB_MODULE_MAP = {module["id"]: module for module in LAB_MODULES}
 
@@ -1089,6 +1137,9 @@ def _extract_bearer_token(request: Request) -> str | None:
 AUTH_EXEMPT_PREFIXES = (
     "/static/", "/login", "/logout",
     "/api/v1/auth/", "/api/health", "/api/v1/health",
+    "/api/v1/challenges", "/api/v1/defense",
+    "/api/v1/sanitizer", "/api/v1/security-systems",
+    "/api/v1/mcp-safety", "/api/v1/knowledge",
 )
 AUTH_EXEMPT_PATHS = {"/", "/robots.txt"}
 
@@ -3685,6 +3736,499 @@ def fw_overview_category(category: str) -> dict[str, Any]:
     if category not in FRAMEWORKS_METADATA:
         raise HTTPException(404, f"Category '{category}' not found. Available: {list(FRAMEWORKS_METADATA.keys())}")
     return {"status": "ok", "category": category, "data": FRAMEWORKS_METADATA[category]}
+
+
+# ═══════════════════════════════════════════════════════════
+#  Challenge Evaluation Engine (DonkAI 风格结构化挑战评估)
+# ═══════════════════════════════════════════════════════════
+
+_DONKAI_CHALLENGES = build_donkai_challenges()
+
+# 挑战尝试存储
+_challenge_attempts: dict[str, list[dict[str, Any]]] = {}
+
+
+class ChallengeSubmitRequest(BaseModel):
+    challenge_set: str  # 如 "llm01", "llm02"...
+    challenge_id: str   # 如 "llm01-c1"
+    payload: str
+
+
+@app.get("/api/v1/challenges")
+def list_challenge_sets() -> dict[str, Any]:
+    """列出所有可用的结构化挑战集（DonkAI 风格 OWASP LLM Top 10）."""
+    sets = {}
+    for set_id, challenges in _DONKAI_CHALLENGES.items():
+        sets[set_id] = {
+            "count": len(challenges),
+            "challenges": [c.to_public_dict() for c in challenges],
+        }
+    return {"status": "ok", "sets": sets}
+
+
+@app.get("/api/v1/challenges/{challenge_set}")
+def get_challenge_set(challenge_set: str) -> dict[str, Any]:
+    """获取指定挑战集的所有挑战."""
+    challenges = _DONKAI_CHALLENGES.get(challenge_set)
+    if not challenges:
+        raise HTTPException(404, f"Challenge set '{challenge_set}' not found")
+    return {"status": "ok", "challenge_set": challenge_set,
+            "challenges": [c.to_public_dict() for c in challenges]}
+
+
+@app.get("/api/v1/challenges/{challenge_set}/{challenge_id}")
+def get_challenge_detail(challenge_set: str, challenge_id: str) -> dict[str, Any]:
+    """获取单个挑战的详细信息."""
+    challenges = _DONKAI_CHALLENGES.get(challenge_set)
+    if not challenges:
+        raise HTTPException(404, f"Challenge set '{challenge_set}' not found")
+    for c in challenges:
+        if c.id == challenge_id:
+            return {"status": "ok", "challenge": c.to_public_dict()}
+    raise HTTPException(404, f"Challenge '{challenge_id}' not found")
+
+
+@app.post("/api/v1/challenges/{challenge_set}/{challenge_id}/submit")
+def submit_challenge(challenge_set: str, challenge_id: str,
+                     payload: ChallengeSubmitRequest) -> dict[str, Any]:
+    """提交挑战 payload 进行评估."""
+    challenges = _DONKAI_CHALLENGES.get(challenge_set)
+    if not challenges:
+        raise HTTPException(404, f"Challenge set '{challenge_set}' not found")
+
+    challenge = next((c for c in challenges if c.id == challenge_id), None)
+    if not challenge:
+        raise HTTPException(404, f"Challenge '{challenge_id}' not found")
+
+    result = challenge_engine.evaluate(challenge, payload.payload)
+
+    # 记录尝试
+    key = f"{challenge_set}/{challenge_id}"
+    if key not in _challenge_attempts:
+        _challenge_attempts[key] = []
+    _challenge_attempts[key].append({
+        "payload": payload.payload[:200],
+        "result": result,
+        "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    })
+
+    return {"status": "ok", "challenge_set": challenge_set,
+            "challenge_id": challenge_id, "result": result}
+
+
+@app.get("/api/v1/challenges/{challenge_set}/{challenge_id}/attempts")
+def get_challenge_attempts(challenge_set: str, challenge_id: str) -> dict[str, Any]:
+    """获取挑战的历史尝试记录."""
+    key = f"{challenge_set}/{challenge_id}"
+    attempts = _challenge_attempts.get(key, [])
+    return {"status": "ok", "challenge_set": challenge_set,
+            "challenge_id": challenge_id, "attempts": attempts, "count": len(attempts)}
+
+
+# ═══════════════════════════════════════════════════════════
+#  AI Defense Engine — 检测与缓解 API
+# ═══════════════════════════════════════════════════════════
+
+
+class DefenseDetectRequest(BaseModel):
+    prompt: str
+    lab_id: str = ""
+
+
+class DefenseValidateRequest(BaseModel):
+    prompt: str
+    max_length: int = 5000
+
+
+class DefenseMitigateRequest(BaseModel):
+    text: str
+    secrets: list[str] = []
+    mode: str = "detect"  # "detect" or "mitigate"
+
+
+@app.post("/api/v1/defense/detect/pattern")
+def defense_pattern_detect(payload: DefenseDetectRequest) -> dict[str, Any]:
+    """使用模式匹配检测器（PromptInjectionDetector）分析输入."""
+    result = prompt_detector.detect(payload.prompt)
+    return {"status": "ok", "detection": result}
+
+
+@app.post("/api/v1/defense/detect/signal")
+def defense_signal_detect(payload: DefenseDetectRequest) -> dict[str, Any]:
+    """使用信号分析检测器（SignalDetector）分析输入."""
+    result = signal_detector.detect(payload.prompt, payload.lab_id)
+    return {"status": "ok", "detection": result}
+
+
+@app.post("/api/v1/defense/validate")
+def defense_validate(payload: DefenseValidateRequest) -> dict[str, Any]:
+    """三层输入验证: 格式 → 模式 → 信号."""
+    is_valid, message, detection = prompt_validator.validate(payload.prompt)
+    return {"status": "ok", "valid": is_valid, "message": message,
+            "detection": detection}
+
+
+@app.post("/api/v1/defense/detect/full")
+def defense_full_detect(payload: DefenseDetectRequest) -> dict[str, Any]:
+    """综合检测: 同时运行模式匹配和信号分析."""
+    pattern_result = prompt_detector.detect(payload.prompt)
+    signal_result = signal_detector.detect(payload.prompt, payload.lab_id)
+    combined_triggered = pattern_result["is_attack"] or signal_result["triggered"]
+    combined_confidence = max(
+        pattern_result.get("confidence", 0),
+        signal_result.get("confidence", 0),
+    )
+    return {
+        "status": "ok",
+        "triggered": combined_triggered,
+        "confidence": round(combined_confidence, 2),
+        "pattern": pattern_result,
+        "signal": signal_result,
+    }
+
+
+@app.post("/api/v1/defense/mitigate")
+def defense_mitigate(payload: DefenseMitigateRequest) -> dict[str, Any]:
+    """输出缓解: 脱敏或拦截."""
+    # 先检测是否需要拦截
+    signal_result = signal_detector.detect(payload.text)
+    result = mitigator.apply(
+        payload.text,
+        secrets=payload.secrets,
+        detection_triggered=signal_result["triggered"],
+        control_mode=payload.mode,
+    )
+    return {"status": "ok", **result, "detection": signal_result}
+
+
+# ═══════════════════════════════════════════════════════════
+#  输出监控 API
+# ═══════════════════════════════════════════════════════════
+
+class OutputScanRequest(BaseModel):
+    text: str
+
+
+@app.post("/api/v1/defense/output/scan")
+def defense_output_scan(payload: OutputScanRequest) -> dict[str, Any]:
+    """扫描 AI 输出内容，检测敏感信息泄露."""
+    is_clean, findings = output_monitor.scan(payload.text)
+    return {
+        "status": "ok",
+        "is_clean": is_clean,
+        "findings": [{"name": f.pattern_name, "matches": f.matches, "severity": f.severity}
+                     for f in findings],
+        "finding_count": len(findings),
+    }
+
+
+@app.post("/api/v1/defense/output/enforce")
+def defense_output_enforce(payload: OutputScanRequest) -> dict[str, Any]:
+    """执行输出策略 — HIGH 拦截 / MEDIUM 脱敏 / CLEAN 放行."""
+    original = payload.text
+    enforced = output_monitor.enforce(original)
+    was_blocked = enforced != original and "RESPONSE BLOCKED" in enforced
+    was_redacted = enforced != original and not was_blocked
+    return {
+        "status": "ok",
+        "blocked": was_blocked,
+        "redacted": was_redacted,
+        "original_length": len(original),
+        "result_length": len(enforced),
+        "result": enforced,
+    }
+
+
+# ═══════════════════════════════════════════════════════════
+#  安全系统 API（教育性）
+# ═══════════════════════════════════════════════════════════
+
+# 全局实例
+_tool_system = ToolSystem()
+_rbac_system = RBACSystem()
+_session_system = SessionSystem()
+_memory_system = MemorySystem()
+_orchestration_system = OrchestrationSystem()
+_rag_system = RAGSystem()
+_memory_guard = MemoryIntegrityGuard()
+
+
+class SecuritySystemInitRequest(BaseModel):
+    system: str  # "tool" | "rbac" | "session" | "memory" | "orchestration" | "rag"
+    action: str
+    params: dict[str, Any] = {}
+
+
+@app.get("/api/v1/security-systems/rbac/agents")
+def list_rbac_agents() -> dict[str, Any]:
+    """列出所有 Agent 及其角色."""
+    return {"status": "ok", "agents": _rbac_system.list_agents()}
+
+
+@app.get("/api/v1/security-systems/rbac/agent/{agent_id}")
+def get_rbac_agent(agent_id: str, include_admin: bool = False) -> dict[str, Any]:
+    """获取 Agent 信息（可包含管理员密钥 ⚠️ 教学漏洞点）."""
+    info = _rbac_system.get_agent_info(agent_id, include_admin=include_admin)
+    if not info:
+        raise HTTPException(404, f"Agent '{agent_id}' not found")
+    return {"status": "ok", "agent": info}
+
+
+@app.get("/api/v1/security-systems/rbac/admin-key/{agent_id}")
+def get_rbac_admin_key(agent_id: str) -> dict[str, Any]:
+    """获取管理员密钥（教学用途 — 展示越权风险）."""
+    result = _rbac_system.get_admin_key(agent_id)
+    return {"status": "ok", "agent_id": agent_id, "admin_key": result}
+
+
+@app.post("/api/v1/security-systems/sessions")
+def create_session(user_id: str) -> dict[str, Any]:
+    """创建新会话."""
+    token = _session_system.create_session(user_id)
+    return {"status": "ok", "session_token": token, "user_id": user_id}
+
+
+@app.get("/api/v1/security-systems/sessions")
+def list_all_sessions() -> dict[str, Any]:
+    """列出所有会话（⚠️ 教学漏洞点）."""
+    return {"status": "ok", "sessions": _session_system.get_all_sessions()}
+
+
+@app.get("/api/v1/security-systems/sessions/{session_token}")
+def get_session(session_token: str) -> dict[str, Any]:
+    """获取会话详情."""
+    session = _session_system.get_session(session_token)
+    if not session:
+        raise HTTPException(404, "Session not found")
+    return {"status": "ok", "session": session}
+
+
+@app.post("/api/v1/security-systems/memory")
+def store_memory(key: str, value: str) -> dict[str, Any]:
+    """存储记忆条目."""
+    _memory_system.store(key, value)
+    return {"status": "ok", "key": key, "stored": True}
+
+
+@app.get("/api/v1/security-systems/memory/search")
+def search_memory(query: str, limit: int = 5) -> dict[str, Any]:
+    """搜索记忆（⚠️ 教学漏洞点）."""
+    results = _memory_system.search(query, limit)
+    return {"status": "ok", "query": query, "results": results, "count": len(results)}
+
+
+@app.get("/api/v1/security-systems/memory/summarize")
+def summarize_memory() -> dict[str, Any]:
+    """汇总所有记忆（⚠️ 教学漏洞点）."""
+    return {"status": "ok", "summary": _memory_system.summarize()}
+
+
+@app.get("/api/v1/security-systems/orchestration/config")
+def get_orchestration_config() -> dict[str, Any]:
+    """获取编排配置（⚠️ 暴露控制密钥）."""
+    return {"status": "ok", "config": _orchestration_system.get_orchestration_config()}
+
+
+@app.get("/api/v1/security-systems/orchestration/log")
+def get_orchestration_log() -> dict[str, Any]:
+    """获取编排控制日志."""
+    return {"status": "ok", "log": _orchestration_system.get_control_log()}
+
+
+@app.post("/api/v1/security-systems/tools/call")
+def call_tool(tool_name: str, function: str, params: dict[str, Any] = {}, sanitize: bool = True) -> dict[str, Any]:
+    """调用模拟工具."""
+    result = _tool_system.call_tool(tool_name, function, params, sanitize=sanitize)
+    return {"status": "ok", "result": result}
+
+
+@app.get("/api/v1/security-systems/tools/config")
+def get_tool_config() -> dict[str, Any]:
+    """获取工具配置（⚠️ 暴露 API 密钥）."""
+    return {"status": "ok", "config": _tool_system.get_tool_config()}
+
+
+@app.get("/api/v1/security-systems/tools/log")
+def get_tool_log(include_sensitive: bool = False) -> dict[str, Any]:
+    """获取工具调用日志."""
+    return {"status": "ok", "log": _tool_system.get_tool_log(include_sensitive=include_sensitive)}
+
+
+@app.post("/api/v1/security-systems/rag/query")
+def rag_query(query_text: str, n_results: int = 3, return_raw: bool = False) -> dict[str, Any]:
+    """查询 RAG 系统."""
+    result = _rag_system.query(query_text, n_results=n_results, return_raw=return_raw)
+    return {"status": "ok", **result}
+
+
+@app.get("/api/v1/security-systems/rag/documents")
+def rag_all_documents() -> dict[str, Any]:
+    """获取所有 RAG 文档（⚠️ 教学漏洞点）."""
+    docs = _rag_system.get_all_documents()
+    return {"status": "ok", "documents": docs, "count": len(docs)}
+
+
+class HardenedPromptRequest(BaseModel):
+    query: str
+    context_docs: list[str]
+
+
+@app.post("/api/v1/security-systems/rag/hardened-prompt")
+def api_build_hardened_prompt(payload: HardenedPromptRequest) -> dict[str, Any]:
+    """构建加固的 RAG 提示（指令/上下文分离）."""
+    messages = build_hardened_rag_prompt(payload.query, payload.context_docs)
+    return {"status": "ok", "messages": messages, "message_count": len(messages)}
+
+
+# ═══════════════════════════════════════════════════════════
+#  MCP 安全 API
+# ═══════════════════════════════════════════════════════════
+
+class MCPSafetyCheckRequest(BaseModel):
+    text: str = ""
+    params: dict[str, Any] = {}
+    tool_name: str = ""
+    server_tools: list[str] = []
+
+
+@app.post("/api/v1/mcp-safety/check-call-size")
+def mcp_check_call_size(payload: MCPSafetyCheckRequest) -> dict[str, Any]:
+    """检查 MCP_CALL 块大小."""
+    ok, err = check_mcp_call_size(payload.text)
+    return {"status": "ok", "valid": ok, "error": err, "max_bytes": 4096}
+
+
+@app.post("/api/v1/mcp-safety/check-params-depth")
+def mcp_check_params_depth(payload: MCPSafetyCheckRequest) -> dict[str, Any]:
+    """检查参数 JSON 深度."""
+    ok, err = check_parameters_depth(payload.params)
+    depth = 0
+    if payload.params:
+        try:
+            from .mcp_security import _json_depth
+            depth = _json_depth(payload.params, 0)
+        except Exception:
+            pass
+    return {"status": "ok", "valid": ok, "error": err, "depth": depth, "max_depth": 5}
+
+
+@app.post("/api/v1/mcp-safety/check-tool-allowlist")
+def mcp_check_tool_allowlist(payload: MCPSafetyCheckRequest) -> dict[str, Any]:
+    """检查工具是否在白名单中."""
+    allowed = tool_in_allowlist(payload.server_tools, payload.tool_name)
+    return {"status": "ok", "tool_name": payload.tool_name, "allowed": allowed}
+
+
+@app.post("/api/v1/mcp-safety/policy-check")
+def mcp_policy_check(
+    trust_level: str = "UNTRUSTED",
+    required_scope: str = "read",
+    granted_scope: list[str] = ["read"],
+    policy_mode: str = "DETECT",
+    identity_bound: bool = False,
+    requested_identity: Optional[str] = None,
+    active_identity: Optional[str] = None,
+    is_chained: bool = False,
+    requires_chain_approval: bool = False,
+    is_sensitive: bool = False,
+) -> dict[str, Any]:
+    """执行 MCP 能力策略检查."""
+    allowed, decision, attack_class, blast_radius, consent_required, consent_granted = policy_check(
+        trust_level=trust_level,
+        required_scope=required_scope,
+        granted_scope=granted_scope,
+        policy_mode=policy_mode,
+        identity_bound=identity_bound,
+        requested_identity=requested_identity,
+        active_identity=active_identity,
+        is_chained=is_chained,
+        requires_chain_approval=requires_chain_approval,
+        is_sensitive=is_sensitive,
+    )
+    return {
+        "status": "ok",
+        "allowed": allowed,
+        "decision": decision,
+        "attack_class": attack_class,
+        "blast_radius": blast_radius,
+        "consent_required": consent_required,
+        "consent_granted": consent_granted,
+    }
+
+
+# ═══════════════════════════════════════════════════════════
+#  输入清洗 API
+# ═══════════════════════════════════════════════════════════
+
+class SanitizeRequest(BaseModel):
+    text: str
+    tool_name: str = ""
+
+
+class RAGIngestRequest(BaseModel):
+    documents: list[dict[str, Any]]
+
+
+class MemoryWriteRequest(BaseModel):
+    key: str
+    value: str
+    source: str = "user_explicit"  # "user_explicit" | "tool_output" | "inferred"
+    interactive_confirm: bool = False
+
+
+@app.post("/api/v1/sanitizer/strip-injections")
+def api_strip_injections(payload: SanitizeRequest) -> dict[str, Any]:
+    """清洗输入中的注入标记."""
+    cleaned = strip_injections(payload.text)
+    return {"status": "ok", "original_length": len(payload.text),
+            "cleaned_length": len(cleaned), "modified": cleaned != payload.text, "result": cleaned}
+
+
+@app.post("/api/v1/sanitizer/tool-output")
+def api_sanitize_tool_output(payload: SanitizeRequest) -> dict[str, Any]:
+    """清洗并包装工具输出（untrusted 内容隔离）."""
+    result = sanitize_tool_output(payload.tool_name or "unknown", payload.text)
+    return {"status": "ok", "tool_name": payload.tool_name or "unknown", "sanitized": result}
+
+
+@app.post("/api/v1/sanitizer/rag-ingest")
+def api_sanitize_rag_ingest(payload: RAGIngestRequest) -> dict[str, Any]:
+    """清洗 RAG 摄入文档."""
+    original_count = len(payload.documents)
+    cleaned = sanitize_rag_ingest(payload.documents)
+    return {"status": "ok", "original_count": original_count,
+            "cleaned_count": len(cleaned), "documents": cleaned}
+
+
+@app.post("/api/v1/sanitizer/memory-write")
+def api_guard_memory_write(payload: MemoryWriteRequest) -> dict[str, Any]:
+    """验证并标记记忆写入."""
+    source_enum = MemorySource(payload.source)
+    record = guard_memory_write(
+        key=payload.key, value=payload.value,
+        source=source_enum,
+        interactive_confirm=payload.interactive_confirm,
+    )
+    if record is None:
+        return {"status": "rejected",
+                "reason": "High-impact key requires user_explicit source + interactive confirmation"}
+    return {"status": "ok", "record": {
+        "key": record.key, "value": record.value,
+        "source": record.source.value, "trust": record.trust.value,
+        "created_at": record.created_at,
+    }}
+
+
+# ═══════════════════════════════════════════════════════════
+#  OWASP 预防策略知识 API
+# ═══════════════════════════════════════════════════════════
+
+@app.get("/api/v1/knowledge/owasp-prevention/{category}")
+def get_owasp_prevention(category: str) -> dict[str, Any]:
+    """获取 OWASP LLM 风险类别的防护策略."""
+    if category not in OWASP_PREVENTION_STRATEGIES:
+        raise HTTPException(404, f"Category '{category}' not found. Available: {list(OWASP_PREVENTION_STRATEGIES.keys())}")
+    return {"status": "ok", "category": category, "prevention": OWASP_PREVENTION_STRATEGIES[category]}
 
 
 # ═══════════════════════════════════════════════════════════

@@ -19,3 +19,7 @@ bcrypt>=4.0.0
 # ── 向量 RAG ──
 chromadb>=0.5.0
 sentence-transformers>=3.0.0
+
+# ── AI 安全引擎 (MCP Policy / Input Sanitizer) ──
+pyyaml>=6.0
+requests>=2.31.0
