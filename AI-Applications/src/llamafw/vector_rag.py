@@ -55,15 +55,41 @@ class VectorRAG:
             return False
 
     def _get_embedding_model(self) -> Any:
-        """延迟加载 embedding 模型。"""
+        """延迟加载 embedding 模型（带超时，防止 HuggingFace 被墙导致启动卡死）。"""
         if self._embedding_model is not None:
             return self._embedding_model
         try:
+            import threading
             from sentence_transformers import SentenceTransformer
 
-            self._embedding_model = SentenceTransformer(EMBEDDING_MODEL_NAME)
-            return self._embedding_model
-        except Exception:
+            result: list[Any] = []
+            error: list[Exception | None] = [None]
+
+            def _load():
+                try:
+                    result.append(SentenceTransformer(EMBEDDING_MODEL_NAME))
+                except Exception as e:
+                    error[0] = e
+
+            t = threading.Thread(target=_load, daemon=True)
+            t.start()
+            t.join(timeout=15)  # 最多等 15 秒
+
+            if t.is_alive():
+                print(f"[VectorRAG] ⚠ 模型下载超时（HuggingFace 不可达），跳过向量 RAG 初始化。"
+                      f" 可设置 HF_ENDPOINT=https://hf-mirror.com 使用镜像。")
+                return None
+
+            if error[0]:
+                print(f"[VectorRAG] ⚠ 模型加载失败: {error[0]}，跳过向量 RAG 初始化。")
+                return None
+
+            if result:
+                self._embedding_model = result[0]
+                return self._embedding_model
+            return None
+        except Exception as e:
+            print(f"[VectorRAG] ⚠ 模型加载异常: {e}，跳过向量 RAG 初始化。")
             return None
 
     def _embed_texts(self, texts: list[str]) -> list[list[float]] | None:

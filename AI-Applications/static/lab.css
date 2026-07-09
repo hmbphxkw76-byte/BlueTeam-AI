@@ -169,6 +169,17 @@ h2 { font-size: 1.35rem; margin-bottom: .5em; }
   color: var(--text);
 }
 
+.nav-policy-badge {
+  font-size: .72rem;
+  padding: 3px 8px;
+  border-radius: 10px;
+  margin-right: 6px;
+  font-weight: 600;
+  background: var(--warning-soft);
+  color: var(--warning);
+  border: 1px solid var(--warning);
+}
+
 .nav-logout {
   font-size: .82rem;
   color: var(--text-muted);

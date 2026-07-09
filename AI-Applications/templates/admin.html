@@ -6,6 +6,32 @@
   <title>实验观测台 · {{ lab_name }}</title>
   <link rel="stylesheet" href="/static/lab.css">
   <script src="/static/protocol.js" defer></script>
+  <style>
+    .policy-card { margin-bottom: 20px; }
+    .policy-grid { display: flex; gap: 12px; flex-wrap: wrap; }
+    .policy-btn {
+      flex: 1; min-width: 200px;
+      padding: 16px;
+      border: 2px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--bg);
+      cursor: pointer;
+      text-align: left;
+      transition: all .2s;
+      font-size: .9rem;
+      line-height: 1.5;
+    }
+    .policy-btn:hover { border-color: var(--accent); background: var(--surface); }
+    .policy-btn.active { border-color: var(--accent); background: var(--accent-soft); box-shadow: 0 0 0 1px var(--accent); }
+    .policy-btn .policy-name { font-weight: 700; font-size: 1rem; display: block; margin-bottom: 4px; }
+    .policy-btn .policy-desc { font-size: .82rem; color: var(--text-muted); display: block; }
+    .policy-btn .policy-tag { display: inline-block; font-size: .72rem; padding: 2px 8px; border-radius: 10px; margin-top: 6px; }
+    .tag-or { background: var(--accent-soft); color: var(--accent); }
+    .tag-and { background: var(--warning-soft); color: var(--warning); }
+    .tag-high { background: var(--danger-soft); color: var(--danger); }
+    .policy-status { font-size: .86rem; color: var(--text-muted); margin-top: 8px; }
+    .auth-method-badge { display: inline-block; font-size: .78rem; padding: 3px 10px; border-radius: 12px; background: var(--surface); border: 1px solid var(--border); margin-left: 8px; }
+  </style>
 </head>
 <body>
   {% include "_nav.html" %}
@@ -23,6 +49,18 @@
         <div class="stat-value">{{ defense_mode }}</div>
       </div>
       <div class="stat-card">
+        <div class="stat-label">认证策略</div>
+        <div class="stat-value" style="font-size:1rem">
+          {% if auth_policy == 'any' %}
+            单通道 OR<span class="auth-method-badge tag-or">any</span>
+          {% elif auth_policy == 'cookie_apikey_and' %}
+            双层 AND<span class="auth-method-badge tag-and">cookie+api</span>
+          {% elif auth_policy == 'high_security' %}
+            高安全<span class="auth-method-badge tag-high">high</span>
+          {% endif %}
+        </div>
+      </div>
+      <div class="stat-card">
         <div class="stat-label">会话数</div>
         <div class="stat-value">{{ conversation_count }}</div>
       </div>
@@ -34,6 +72,30 @@
         <div class="stat-label">限流</div>
         <div class="stat-value" style="font-size:1.1rem">{{ rate_limit }}/min</div>
       </div>
+    </div>
+
+    <!-- 认证策略切换 -->
+    <div class="card policy-card">
+      <h2>🔐 认证策略切换</h2>
+      <p class="text-muted text-sm mb-2">切换当前靶机的认证组合模式。策略影响所有后续请求的认证逻辑，切换后已登录用户的 Cookie 不受影响但需满足新策略的额外要求。</p>
+      <div class="policy-grid">
+        <button class="policy-btn{% if auth_policy == 'any' %} active{% endif %}" data-policy="any">
+          <span class="policy-name">单通道 OR</span>
+          <span class="policy-desc">Cookie / API Key / JWT 任选其一即可通过。覆盖 90% 真实 AI 应用场景。</span>
+          <span class="policy-tag tag-or">默认 · 攻击面最大</span>
+        </button>
+        <button class="policy-btn{% if auth_policy == 'cookie_apikey_and' %} active{% endif %}" data-policy="cookie_apikey_and">
+          <span class="policy-name">Cookie + API Key AND</span>
+          <span class="policy-desc">必须同时通过 Cookie 登录 + API Key 验证。模拟企业 AI 网关分层认证。</span>
+          <span class="policy-tag tag-and">双层 · 需同时击穿两道防线</span>
+        </button>
+        <button class="policy-btn{% if auth_policy == 'high_security' %} active{% endif %}" data-policy="high_security">
+          <span class="policy-name">高安全模式</span>
+          <span class="policy-desc">Cookie + Admin API Key AND，JWT 禁用。模拟金融/军工级 AI 平台。非 admin Key 被拒绝。</span>
+          <span class="policy-tag tag-high">最严格 · 需 admin 角色</span>
+        </button>
+      </div>
+      <p class="policy-status" id="policy-msg">当前策略：<strong>{{ auth_policy }}</strong> — 仅当前运行生效，重启后恢复 .env 设置</p>
     </div>
 
     <!-- 最近事件 -->
@@ -74,8 +136,43 @@
     <!-- API 提示 -->
     <div class="card">
       <h2>API 提示</h2>
-      <p class="text-muted text-sm">结构化日志接口: <code>/api/v1/admin/logs</code>。默认训练 token 可在环境变量 <code>LAB_ADMIN_TOKEN</code> 中修改。</p>
+      <p class="text-muted text-sm">结构化日志接口: <code>/api/v1/admin/logs</code>。默认训练 token 可在环境变量 <code>LAB_ADMIN_TOKEN</code> 中修改。认证策略通过 <code>POST /api/v1/auth/policy</code> 切换。</p>
     </div>
   </main>
+
+  <script>
+    // ── 认证策略切换 ──
+    document.querySelectorAll(".policy-btn").forEach(function(btn) {
+      btn.addEventListener("click", async function() {
+        var policy = this.dataset.policy;
+        if (this.classList.contains("active")) return;
+        document.querySelectorAll(".policy-btn").forEach(function(b) {
+          b.classList.remove("active"); b.disabled = true;
+        });
+        var msgEl = document.getElementById("policy-msg");
+        msgEl.textContent = "切换中...";
+        try {
+          var r = await fetch("/api/v1/auth/policy", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ policy: policy }),
+          });
+          var d = await r.json();
+          if (d.ok) {
+            document.querySelector('[data-policy="' + d.current + '"]').classList.add("active");
+            msgEl.textContent = d.message;
+          } else {
+            msgEl.textContent = "切换失败: " + (d.detail || "未知错误");
+          }
+        } catch (e) {
+          msgEl.textContent = "网络错误: " + e.message;
+        } finally {
+          document.querySelectorAll(".policy-btn").forEach(function(b) {
+            b.disabled = false;
+          });
+        }
+      });
+    });
+  </script>
 </body>
 </html>

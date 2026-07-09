@@ -107,6 +107,53 @@ LAB_SESSION_SECRET = os.getenv("LAB_SESSION_SECRET", secrets.token_hex(32))
 _auth_runtime_enabled: bool = LAB_AUTH_ENABLED
 
 
+# ── 多模式认证配置（Cookie / API Key / JWT 组合）──
+
+# 三种认证模式的启停开关（可独立控制，用于靶机实验验证）
+LAB_AUTH_MODE_COOKIE = os.getenv("LAB_AUTH_MODE_COOKIE", "1").strip() in {"1", "true", "yes", "on"}
+LAB_AUTH_MODE_APIKEY = os.getenv("LAB_AUTH_MODE_APIKEY", "1").strip() in {"1", "true", "yes", "on"}
+LAB_AUTH_MODE_JWT = os.getenv("LAB_AUTH_MODE_JWT", "1").strip() in {"1", "true", "yes", "on"}
+
+# 认证策略：控制多个通道之间的组合逻辑
+#   "any"              — 单通道 OR：Cookie / API Key / JWT 任选其一（默认，覆盖 90% 场景）
+#   "cookie_apikey_and" — Cookie + API Key 双层 AND：必须同时通过 Cookie 和 API Key（模拟企业 AI 网关分层认证）
+#   "high_security"     — 高安全模式：Cookie + admin API Key AND，JWT 被强制禁用（模拟金融/军工级 AI 平台）
+_VAILD_POLICIES = {"any", "cookie_apikey_and", "high_security"}
+LAB_AUTH_POLICY = os.getenv("LAB_AUTH_POLICY", "any").strip().lower()
+if LAB_AUTH_POLICY not in _VAILD_POLICIES:
+    LAB_AUTH_POLICY = "any"
+_auth_policy: str = LAB_AUTH_POLICY
+
+# JWT 配置——默认弱密钥便于靶机实验中演示 JWT 攻击
+LAB_JWT_SECRET = os.getenv("LAB_JWT_SECRET", "guardai-training-jwt-secret-2026")
+LAB_JWT_ALGORITHM = os.getenv("LAB_JWT_ALGORITHM", "HS256")
+LAB_JWT_EXPIRATION_HOURS = int(os.getenv("LAB_JWT_EXPIRATION_HOURS", "24"))
+
+
+def _parse_api_keys(raw: str) -> dict[str, dict[str, str]]:
+    """解析 API Key 配置字符串: name:key:role,name:key:role"""
+    result: dict[str, dict[str, str]] = {}
+    if not raw:
+        raw = (
+            "production:sk-guardai-prod-2026:admin,"
+            "development:sk-guardai-dev-2026:user,"
+            "test:sk-guardai-test-2026:viewer"
+        )
+    for item in raw.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        parts = item.split(":")
+        if len(parts) >= 3:
+            key_value = parts[1].strip()
+            if key_value:
+                result[key_value] = {"name": parts[0].strip(), "role": parts[2].strip()}
+    return result
+
+
+LAB_API_KEYS = _parse_api_keys(os.getenv("LAB_API_KEYS", ""))
+
+
 # ── 系统提示与模拟数据 ──
 
 SYSTEM_PROMPT = (

@@ -11,6 +11,7 @@ import re
 import time
 import uuid
 import hashlib
+import hmac
 import secrets as secrets_mod
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -26,11 +27,18 @@ from .config import (
     AI_SECURITY_LEVEL,
     ENV_PATH,
     LAB_ADMIN_TOKEN,
+    LAB_API_KEYS,
     LAB_AUTH_ENABLED,
+    LAB_AUTH_MODE_APIKEY,
+    LAB_AUTH_MODE_COOKIE,
+    LAB_AUTH_MODE_JWT,
     LAB_AUTH_USERNAME,
     LAB_AUTH_PASSWORD_HASH,
     LAB_COMPAT_API_KEY,
     LAB_DEFENSE_MODE,
+    LAB_JWT_ALGORITHM,
+    LAB_JWT_EXPIRATION_HOURS,
+    LAB_JWT_SECRET,
     LAB_NAME,
     LAB_SESSION_SECRET,
     RATE_LIMIT_WINDOW_SECONDS,
@@ -41,6 +49,7 @@ from .config import (
     TICKET_AGENT_ENABLED,
     TICKET_ESCALATION_ENABLED,
     _env_clear_prefix,
+    _auth_policy,
     _auth_runtime_enabled,
     build_llm_client,
     configured_model,
@@ -155,6 +164,56 @@ from .ai300_owasp_modules import (
     OWASPShadowLoginRequest,
     OWASPEmbeddingRequest,
 )
+from .ai300_frameworks import (
+    FRAMEWORKS_MODULES,
+    # VDB handlers
+    handle_qdrant_collections, handle_qdrant_collection_info, handle_qdrant_search, handle_qdrant_scroll,
+    handle_faiss_info, handle_faiss_search,
+    handle_pgvector_query,
+    handle_milvus_collections, handle_milvus_query,
+    handle_weaviate_schema, handle_weaviate_graphql,
+    handle_pinecone_indexes, handle_es_mapping,
+    # Embedding handlers
+    handle_emb_models, handle_emb_compare, handle_emb_inversion,
+    # RAG handlers
+    handle_llamaindex_pipelines, handle_llamaindex_load, handle_llamaindex_query,
+    handle_haystack_info, handle_haystack_query, handle_haystack_component,
+    handle_ragflow_datasets,
+    # Agent handlers
+    handle_crewai_crews, handle_crewai_add_agent, handle_crewai_execute,
+    handle_autogen_agents, handle_autogen_chat, handle_autogen_register,
+    handle_adk_agents, handle_adk_chat, handle_adk_add_tool,
+    handle_sk_plugins, handle_sk_invoke,
+    handle_dify_apps, handle_coze_bots,
+    handle_metagpt_roles, handle_metagpt_startup,
+    handle_langgraph_graphs, handle_langgraph_visualize,
+    handle_flowise_flows, handle_n8n_workflows,
+    # MCP handlers
+    handle_mcp_ext_servers, handle_mcp_fastmcp, handle_a2a_agent_card,
+    # Supply chain handlers
+    handle_hf_models, handle_hf_model_info, handle_hf_scan_pickle,
+    handle_mlflow_experiments, handle_mlflow_runs, handle_mlflow_register, handle_mlflow_deploy, handle_mlflow_artifacts,
+    handle_pypi_scan, handle_wandb_runs,
+    # Adversarial ML handlers
+    handle_adv_models, handle_adv_attack, handle_model_extraction,
+    # Multimodal handlers
+    handle_multimodal_models, handle_image_injection, handle_pdf_injection, handle_audio_injection,
+    # Infra handlers
+    handle_vllm_models, handle_vllm_chat, handle_vllm_metrics,
+    handle_tgi_info, handle_tgi_generate,
+    handle_triton_models, handle_triton_infer,
+    handle_bentoml_services, handle_bentoml_predict,
+    handle_ray_deployments, handle_kserve_services, handle_k8s_ai_resources,
+    # Methodology
+    handle_methodology,
+    # Overview
+    handle_frameworks_overview, FRAMEWORKS_METADATA,
+    # Pydantic models
+    FWProbeRequest, FWSearchRequest, FWAgentInjectRequest, FWAgentTaskRequest,
+    FWAgentChatRequest, FWAgentRegisterRequest, FWToolExecuteRequest,
+    FWMultimodalRequest, FWAdversarialRequest, FWModelExtractionRequest,
+    FWMLflowDeployRequest, FWMLflowRegisterRequest,
+)
 from .openairt300_backend import (
     OPEN_AIRT_300_MODULES,
     OPEN_AIRT_MODULE_MAP,
@@ -225,7 +284,7 @@ _https_port = os.getenv("UVICORN_HTTPS_PORT", "443")
 app = FastAPI(
     title="AISecLab — AI Security Lab",
     description="AI 安全训练靶机 + 智能客服模拟平台，集成工单系统、向量 RAG 和 AI Agent。",
-    version="0.4.0",
+    version="0.5.0",
     servers=[{"url": f"https://localhost:{_https_port}", "description": "默认 HTTPS"}],
 )
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
@@ -474,6 +533,11 @@ LAB_MODULE_MAP = {module["id"]: module for module in LAB_MODULES}
 for airt_module in OPEN_AIRT_300_MODULES:
     if airt_module["id"] not in [m["id"] for m in LAB_MODULES]:
         LAB_MODULES.append(airt_module)
+
+# ── 合并 AI-300 Frameworks 模块（向量数据库/Agent/RAG/供应链/对抗ML/多模态/基础设施）──
+for fw_module in FRAMEWORKS_MODULES:
+    if fw_module["id"] not in [m["id"] for m in LAB_MODULES]:
+        LAB_MODULES.append(fw_module)
 
 # 更新映射
 LAB_MODULE_MAP = {module["id"]: module for module in LAB_MODULES}
@@ -923,11 +987,268 @@ async def api_rate_limit_middleware(request: Request, call_next):
     return response
 
 
-# ── 认证中间件 ──
-AUTH_EXEMPT_PREFIXES = ("/static/", "/login", "/api/v1/auth/", "/api/v1/health", "/api/health")
+# ═══════════════════════════════════════════════
+#  JWT 工具函数（HMAC-SHA256，支持 alg:none 训练场景）
+# ═══════════════════════════════════════════════
 
-# 精确豁免路径（robots.txt 等不需要认证的公共资源）
-AUTH_EXEMPT_PATHS = {"/robots.txt"}
+def _b64url_encode(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
+
+
+def _b64url_decode(data: str) -> bytes:
+    padding = 4 - len(data) % 4
+    if padding != 4:
+        data += "=" * padding
+    return base64.urlsafe_b64decode(data)
+
+
+def _create_jwt(payload: dict[str, Any], secret: str, algorithm: str = "HS256") -> str:
+    """创建 JWT Token。
+
+    支持 HS256/HS384/HS512 及训练用的 "none" 算法。
+    """
+    header = {"alg": algorithm, "typ": "JWT"}
+    header_b64 = _b64url_encode(json.dumps(header, separators=(",", ":")).encode())
+    payload_b64 = _b64url_encode(json.dumps(payload, separators=(",", ":")).encode())
+
+    message = f"{header_b64}.{payload_b64}"
+
+    if algorithm == "none":
+        signature = ""
+    elif algorithm == "HS256":
+        sig = hmac.new(secret.encode(), message.encode(), hashlib.sha256).digest()
+        signature = _b64url_encode(sig)
+    elif algorithm == "HS384":
+        sig = hmac.new(secret.encode(), message.encode(), hashlib.sha384).digest()
+        signature = _b64url_encode(sig)
+    elif algorithm == "HS512":
+        sig = hmac.new(secret.encode(), message.encode(), hashlib.sha512).digest()
+        signature = _b64url_encode(sig)
+    else:
+        sig = hmac.new(secret.encode(), message.encode(), hashlib.sha256).digest()
+        signature = _b64url_encode(sig)
+
+    return f"{message}.{signature}"
+
+
+def _verify_jwt(token: str, secret: str, allowed_algorithms: list[str] | None = None) -> dict[str, Any]:
+    """验证 JWT Token，返回 payload dict。
+
+    支持 alg:none 攻击向量（靶机训练场景）。
+    校验签名 + exp 过期时间。
+    """
+    if allowed_algorithms is None:
+        allowed_algorithms = ["HS256", "HS384", "HS512", "none"]
+
+    parts = token.split(".")
+    if len(parts) != 3:
+        raise ValueError("Invalid JWT: expected header.payload.signature")
+
+    header_b64, payload_b64, sig_b64 = parts
+
+    try:
+        header_bytes = _b64url_decode(header_b64)
+        payload_bytes = _b64url_decode(payload_b64)
+        header = json.loads(header_bytes)
+        payload = json.loads(payload_bytes)
+    except Exception:
+        raise ValueError("Invalid JWT: malformed header or payload")
+
+    alg = header.get("alg", "HS256")
+
+    # ── alg:none 攻击向量（故意保留用于训练）──
+    if alg == "none":
+        if "none" not in allowed_algorithms:
+            raise ValueError("JWT 'none' algorithm not allowed")
+    else:
+        # 签名校验
+        message = f"{header_b64}.{payload_b64}"
+        expected_sig = _b64url_encode(
+            hmac.new(secret.encode(), message.encode(), hashlib.sha256).digest()
+        )
+        if not secrets_mod.compare_digest(expected_sig, sig_b64):
+            raise ValueError("Invalid JWT signature")
+
+    # 过期校验
+    exp = payload.get("exp", float("inf"))
+    if exp < time.time():
+        raise ValueError("JWT token has expired")
+
+    return payload
+
+
+def _extract_bearer_token(request: Request) -> str | None:
+    """从 Authorization header 提取 Bearer token。"""
+    auth = request.headers.get("authorization", "")
+    if auth.startswith("Bearer "):
+        return auth[7:].strip()
+    return None
+
+
+# ── 认证中间件（多模式：Cookie / API Key / JWT）──
+AUTH_EXEMPT_PREFIXES = (
+    "/static/", "/login", "/logout",
+    "/api/v1/auth/", "/api/health", "/api/v1/health",
+)
+AUTH_EXEMPT_PATHS = {"/", "/robots.txt"}
+
+
+def _build_available_modes() -> list[dict[str, str]]:
+    """根据当前认证策略构建可用模式列表，用于 401 响应和 API 端点。"""
+    modes: list[dict[str, str]] = []
+    policy = _auth_policy
+
+    if policy == "any":
+        if LAB_AUTH_MODE_COOKIE:
+            modes.append({"mode": "cookie", "method": "POST /login", "description": "用户名+密码登录获取 session cookie"})
+        if LAB_AUTH_MODE_APIKEY:
+            modes.append({"mode": "apikey", "header": "x-api-key: <key> 或 Authorization: Bearer <raw-key>", "description": "预置 API Key 直接认证"})
+        if LAB_AUTH_MODE_JWT:
+            modes.append({"mode": "jwt", "method": "POST /api/v1/auth/token", "header": "Authorization: Bearer <jwt>", "description": "JWT Bearer Token 认证"})
+    elif policy == "cookie_apikey_and":
+        modes.append({
+            "mode": "cookie+apikey",
+            "policy": "and",
+            "requires": "Cookie Session + API Key",
+            "description": "双层认证：先通过 Cookie 登录，再提供 API Key。任一缺失则拒绝访问。",
+            "step1_cookie": "POST /login — 用户名+密码登录获取 session cookie",
+            "step2_apikey": "需在请求中携带 x-api-key header",
+        })
+    elif policy == "high_security":
+        modes.append({
+            "mode": "high_security",
+            "policy": "and+admin",
+            "requires": "Cookie Session + Admin API Key",
+            "description": "高安全模式：Cookie 登录后还需提供 admin 角色的 API Key。JWT 在此模式下被禁用。",
+            "step1_cookie": "POST /login — 用户名+密码登录获取 session cookie",
+            "step2_admin_apikey": "需携带 admin 角色 API Key（如 sk-guardai-prod-2026）",
+            "note": "JWT 认证已禁用，non-admin API Key 将被拒绝",
+        })
+
+    return modes
+
+
+def _api_key_from_request(request: Request) -> str | None:
+    """从多种载体提取 API Key: x-api-key header > Authorization: Bearer raw key > ?api_key query."""
+    key = request.headers.get("x-api-key")
+    if key:
+        return key.strip()
+    auth = request.headers.get("authorization", "")
+    if auth.startswith("Bearer "):
+        raw = auth[7:].strip()
+        # 不含 "." 的视为 raw API key, 含两个 "." 的为 JWT
+        if raw.count(".") < 2:
+            return raw
+    return (request.query_params.get("api_key") or "").strip() or None
+
+
+def _authenticate_request(request: Request) -> tuple[bool, str, dict[str, Any]]:
+    """多模式认证：根据 _auth_policy 决定认证组合逻辑。
+
+    Policy 说明：
+        "any"              — 单通道 OR：Cookie → API Key → JWT 依次尝试，任一通过即可
+        "cookie_apikey_and" — Cookie + API Key 双层 AND：两者必须同时有效（模拟企业 AI 网关）
+        "high_security"     — 高安全模式：Cookie + admin 角色 API Key AND，JWT 强制禁用
+
+    Returns:
+        (authenticated, method, session_updates)
+    """
+    policy = _auth_policy
+
+    # ═══════════════════════════════════════════════════════
+    #  Policy: any — 单通道 OR（默认，覆盖 90% 场景）
+    # ═══════════════════════════════════════════════════════
+    if policy == "any":
+        # Mode 1: Cookie Session
+        if LAB_AUTH_MODE_COOKIE and request.state.session.get("lab_authenticated"):
+            return True, "cookie", {}
+
+        # Mode 2: API Key
+        if LAB_AUTH_MODE_APIKEY:
+            api_key = _api_key_from_request(request)
+            if api_key and api_key in LAB_API_KEYS:
+                info = LAB_API_KEYS[api_key]
+                return True, "apikey", {
+                    "lab_authenticated": True,
+                    "lab_user": info["name"],
+                    "lab_role": info["role"],
+                    "auth_method": "apikey",
+                }
+
+        # Mode 3: JWT Bearer Token
+        if LAB_AUTH_MODE_JWT:
+            token = _extract_bearer_token(request)
+            if token:
+                try:
+                    payload = _verify_jwt(token, LAB_JWT_SECRET)
+                    return True, "jwt", {
+                        "lab_authenticated": True,
+                        "lab_user": payload.get("sub", "jwt-user"),
+                        "lab_role": payload.get("role", "user"),
+                        "auth_method": "jwt",
+                        "jwt_payload": {k: v for k, v in payload.items() if k != "exp"},
+                    }
+                except Exception:
+                    pass  # JWT 无效，继续往下
+
+        return False, "none", {}
+
+    # ═══════════════════════════════════════════════════════
+    #  Policy: cookie_apikey_and — Cookie + API Key 双层 AND
+    # ═══════════════════════════════════════════════════════
+    if policy == "cookie_apikey_and":
+        # 双层模式要求 Cookie 和 API Key 模式都已启用
+        if not LAB_AUTH_MODE_COOKIE or not LAB_AUTH_MODE_APIKEY:
+            return False, "none", {}
+
+        # 第一层：Cookie Session — 必须已登录
+        cookie_user = request.state.session.get("lab_user")
+        if not request.state.session.get("lab_authenticated") or not cookie_user:
+            return False, "none", {}
+
+        # 第二层：API Key — 必须提供有效 Key
+        api_key = _api_key_from_request(request)
+        if not api_key or api_key not in LAB_API_KEYS:
+            return False, "none", {}
+
+        info = LAB_API_KEYS[api_key]
+        return True, "cookie+apikey", {
+            "lab_user": cookie_user,
+            "lab_role": info["role"],
+            "auth_method": "cookie+apikey",
+            "apikey_name": info["name"],
+        }
+
+    # ═══════════════════════════════════════════════════════
+    #  Policy: high_security — 高安全模式
+    # ═══════════════════════════════════════════════════════
+    if policy == "high_security":
+        # 要求 Cookie 和 API Key 模式都已启用
+        if not LAB_AUTH_MODE_COOKIE or not LAB_AUTH_MODE_APIKEY:
+            return False, "none", {}
+
+        # 第一层：Cookie Session — 必须已登录
+        cookie_user = request.state.session.get("lab_user")
+        if not request.state.session.get("lab_authenticated") or not cookie_user:
+            return False, "none", {}
+
+        # 第二层：API Key — 必须提供 admin 角色 Key
+        api_key = _api_key_from_request(request)
+        if not api_key or api_key not in LAB_API_KEYS:
+            return False, "none", {}
+
+        info = LAB_API_KEYS[api_key]
+        if info["role"] != "admin":
+            return False, "none", {}
+
+        return True, "high_security", {
+            "lab_user": cookie_user,
+            "lab_role": "admin",
+            "auth_method": "high_security",
+            "apikey_name": info["name"],
+        }
+
+    return False, "none", {}
 
 
 @app.middleware("http")
@@ -938,23 +1259,42 @@ async def web_auth_middleware(request: Request, call_next):
     if any(path.startswith(p) for p in AUTH_EXEMPT_PREFIXES) or path in AUTH_EXEMPT_PATHS:
         return await call_next(request)
 
-    # 跳过所有 API 路由（训练靶机保留 API 可访问性）
-    if path.startswith("/api/") or path.startswith("/v1/"):
-        return await call_next(request)
-
     # 认证已关闭（运行时开关）
     if not _auth_runtime_enabled:
         return await call_next(request)
 
-    # 检查会话
-    if not request.state.session.get("lab_authenticated"):
-        if request.method == "GET":
-            # 页面请求 → 302 跳转到登录页
-            query = f"?next={request.url.path}" if request.url.path != "/" else ""
-            return RedirectResponse(url=f"/login{query}", status_code=302)
-        return JSONResponse(status_code=401, content={"detail": "请先通过 /login 登录"})
+    # ── 多模式认证 ──
+    authenticated, method, session_updates = _authenticate_request(request)
+    if authenticated:
+        # 将认证结果写入 session state
+        for k, v in session_updates.items():
+            request.state.session[k] = v
+        request.state._session_dirty = True
 
-    return await call_next(request)
+        response = await call_next(request)
+        # 注入认证方法响应头，便于靶机测试识别
+        response.headers["X-Auth-Method"] = method
+        return response
+
+    # ── 未认证 ──
+    # 构建可用认证模式信息，方便靶机实验参与者发现
+    available_modes = _build_available_modes()
+
+    if path.startswith("/api/") or path.startswith("/v1/"):
+        return JSONResponse(status_code=401, content={
+            "detail": "Authentication required. Multiple modes available for training.",
+            "authenticated": False,
+            "auth_policy": _auth_policy,
+            "available_auth_modes": available_modes,
+        })
+    if request.method == "GET":
+        query = f"?next={request.url.path}" if request.url.path != "/" else ""
+        return RedirectResponse(url=f"/login{query}", status_code=302)
+    return JSONResponse(status_code=401, content={
+        "detail": "请先认证。支持 Cookie 登录、API Key 或 JWT Token。",
+        "auth_policy": _auth_policy,
+        "available_auth_modes": available_modes,
+    })
 
 
 # ── 安全响应头中间件 ──
@@ -1132,6 +1472,12 @@ def home(request: Request) -> HTMLResponse:
             "modules": LAB_MODULES,
             "model_config": get_model_config(),
             "auth_enabled": _auth_runtime_enabled,
+            "auth_policy": _auth_policy,
+            "auth_modes": {
+                "cookie": LAB_AUTH_MODE_COOKIE,
+                "apikey": LAB_AUTH_MODE_APIKEY,
+                "jwt": LAB_AUTH_MODE_JWT,
+            },
         },
     )
 
@@ -1193,6 +1539,12 @@ def admin_lab(request: Request) -> HTMLResponse:
             "recent_events": list(reversed(audit_events[-12:])),
             "modules": LAB_MODULES,
             "auth_enabled": _auth_runtime_enabled,
+            "auth_policy": _auth_policy,
+            "auth_modes": {
+                "cookie": LAB_AUTH_MODE_COOKIE,
+                "apikey": LAB_AUTH_MODE_APIKEY,
+                "jwt": LAB_AUTH_MODE_JWT,
+            },
         },
     )
 
@@ -1316,6 +1668,14 @@ def api_auth_status(request: Request) -> dict[str, Any]:
         "enabled": _auth_runtime_enabled,
         "authenticated": request.state.session.get("lab_authenticated", False),
         "user": request.state.session.get("lab_user"),
+        "role": request.state.session.get("lab_role", "user"),
+        "auth_method": request.state.session.get("auth_method", "cookie" if request.state.session.get("lab_authenticated") else "none"),
+        "auth_policy": _auth_policy,
+        "modes_active": {
+            "cookie": LAB_AUTH_MODE_COOKIE,
+            "apikey": LAB_AUTH_MODE_APIKEY,
+            "jwt": LAB_AUTH_MODE_JWT,
+        },
     }
 
 
@@ -1327,6 +1687,228 @@ def api_auth_toggle(request: Request) -> dict[str, Any]:
     _auth_runtime_enabled = not _auth_runtime_enabled
     state = "已启用" if _auth_runtime_enabled else "已关闭"
     return {"enabled": _auth_runtime_enabled, "message": f"认证{state}（仅当前运行生效，重启后恢复 .env 设置）"}
+
+
+class PolicySwitchRequest(BaseModel):
+    """认证策略切换请求。"""
+    policy: str = Field(min_length=1, max_length=30)
+
+
+@app.post("/api/v1/auth/policy")
+def api_auth_policy_switch(payload: PolicySwitchRequest) -> dict[str, Any]:
+    """切换认证策略：any / cookie_apikey_and / high_security。
+
+    策略说明：
+        any              — 单通道 OR（Cookie/API Key/JWT 任选其一）
+        cookie_apikey_and — Cookie + API Key 双层 AND
+        high_security    — 高安全模式（Cookie + Admin API Key AND）
+    """
+    global _auth_policy
+    new_policy = payload.policy.strip().lower()
+    if new_policy not in {"any", "cookie_apikey_and", "high_security"}:
+        raise HTTPException(
+            status_code=400,
+            detail=f"无效策略: {new_policy}。可选: any, cookie_apikey_and, high_security",
+        )
+    old_policy = _auth_policy
+    _auth_policy = new_policy
+
+    policy_labels = {
+        "any": "单通道 OR（Cookie/API Key/JWT 任选其一）",
+        "cookie_apikey_and": "Cookie + API Key 双层 AND",
+        "high_security": "高安全模式（Cookie + Admin API Key AND，JWT 禁用）",
+    }
+    return {
+        "ok": True,
+        "previous": old_policy,
+        "current": _auth_policy,
+        "description": policy_labels.get(_auth_policy, _auth_policy),
+        "message": f"认证策略已切换: {old_policy} → {_auth_policy}（仅当前运行生效）",
+        "available_modes": _build_available_modes(),
+    }
+
+
+# ── 多模式认证 API 端点 ──
+
+class TokenRequest(BaseModel):
+    """JWT Token 签发请求。"""
+    username: str = Field(min_length=1, max_length=100)
+    password: str = Field(min_length=1, max_length=128)
+    role: str = Field(default="user", max_length=50)
+    expires_in_hours: int = Field(default=LAB_JWT_EXPIRATION_HOURS, ge=1, le=168)
+
+
+class APIKeyRequest(BaseModel):
+    """API Key 签发请求（管理端）。"""
+    name: str = Field(min_length=1, max_length=100)
+    role: str = Field(default="user", max_length=50)
+
+
+@app.post("/api/v1/auth/token")
+def api_auth_issue_token(payload: TokenRequest) -> dict[str, Any]:
+    """签发 JWT Token。
+
+    通过用户名+密码认证后返回 JWT Bearer Token。
+    默认使用弱密钥 HS256——靶机实验中可尝试：
+    - 暴力破解 JWT secret
+    - alg:none 攻击（将 header.alg 改为 "none"）
+    - 密钥泄露后伪造任意用户 token
+    - 修改 exp 延长有效期
+    """
+    # 验证凭据
+    if payload.username != LAB_AUTH_USERNAME or not verify_password(payload.password, LAB_AUTH_PASSWORD_HASH):
+        raise HTTPException(status_code=401, detail="用户名或密码错误")
+
+    now = int(time.time())
+    exp = now + payload.expires_in_hours * 3600
+    jwt_payload = {
+        "sub": payload.username,
+        "role": payload.role,
+        "iat": now,
+        "exp": exp,
+        "iss": "aiseclab-auth",
+        "aud": "aiseclab-api",
+    }
+    token = _create_jwt(jwt_payload, LAB_JWT_SECRET, LAB_JWT_ALGORITHM)
+
+    record_event("jwt_issued", {"user": payload.username, "role": payload.role, "expires_in_hours": payload.expires_in_hours})
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "expires_in": payload.expires_in_hours * 3600,
+        "expires_at": datetime.fromtimestamp(exp, tz=timezone.utc).isoformat(),
+        "algorithm": LAB_JWT_ALGORITHM,
+        "hint": "JWT 使用弱密钥签发，可尝试离线破解或 alg:none 攻击。",
+    }
+
+
+@app.post("/api/v1/auth/token/verify")
+def api_auth_verify_token(request: Request) -> dict[str, Any]:
+    """验证当前请求携带的 JWT Token。"""
+    token = _extract_bearer_token(request)
+    if not token:
+        raise HTTPException(status_code=400, detail="请在 Authorization header 中提供 Bearer token")
+
+    try:
+        payload = _verify_jwt(token, LAB_JWT_SECRET)
+        return {"valid": True, "payload": payload}
+    except ValueError as e:
+        return {"valid": False, "error": str(e)}
+
+
+@app.get("/api/v1/auth/token/debug")
+def api_auth_token_debug() -> dict[str, Any]:
+    """JWT 调试信息——故意暴露密钥元数据，用于靶机训练发现弱密钥。
+
+    安全注意：生产环境必须关闭此端点。
+    """
+    return {
+        "algorithm": LAB_JWT_ALGORITHM,
+        "secret_hint": "guardai-training-****",
+        "secret_length": len(LAB_JWT_SECRET),
+        "header_template": {"alg": LAB_JWT_ALGORITHM, "typ": "JWT"},
+        "payload_template": {"sub": "<username>", "role": "<role>", "iat": "<timestamp>", "exp": "<timestamp>"},
+        "endpoints": {
+            "issue": "POST /api/v1/auth/token  (需用户名+密码)",
+            "verify": "POST /api/v1/auth/token/verify",
+            "debug": "GET /api/v1/auth/token/debug (本端点)",
+        },
+        "note": "生产环境中 JWT secret 应使用强随机值并通过 vault 管理，此端点应禁用。",
+        "training_focus": [
+            "JWT 弱密钥暴力破解",
+            "alg:none 签名绕过",
+            "exp 过期时间篡改",
+            "role 提权伪造",
+        ],
+    }
+
+
+@app.post("/api/v1/auth/apikey")
+def api_auth_issue_apikey(request: Request, payload: APIKeyRequest) -> dict[str, Any]:
+    """签发新的 API Key（需已认证为 admin 角色）。
+
+    靶机实验中可测试：
+    - 未授权 API Key 创建（越权漏洞）
+    - API Key 泄露后横向移动
+    - 不同 role 的 API Key 权限差异
+    """
+    current_role = request.state.session.get("lab_role", "user")
+    if current_role != "admin":
+        raise HTTPException(status_code=403, detail="仅 admin 角色可签发 API Key")
+
+    new_key = f"sk-guardai-{payload.name}-{secrets_mod.token_hex(6)}"
+    LAB_API_KEYS[new_key] = {"name": payload.name, "role": payload.role}
+    record_event("apikey_issued", {"name": payload.name, "role": payload.role})
+    return {
+        "api_key": new_key,
+        "name": payload.name,
+        "role": payload.role,
+        "warning": "请妥善保管 API Key，此密钥将不再完整显示。",
+    }
+
+
+@app.get("/api/v1/auth/apikeys")
+def api_auth_list_apikeys(request: Request) -> dict[str, Any]:
+    """列出所有 API Keys（脱敏显示，需 admin 角色）。"""
+    current_role = request.state.session.get("lab_role", "user")
+    if current_role != "admin":
+        raise HTTPException(status_code=403, detail="仅 admin 角色可查看 API Key 列表")
+
+    keys_safe = []
+    for key, info in LAB_API_KEYS.items():
+        masked = key[:16] + "****" + key[-4:] if len(key) > 24 else key[:8] + "****"
+        keys_safe.append({"key_preview": masked, "name": info["name"], "role": info["role"]})
+    return {"total": len(keys_safe), "keys": keys_safe}
+
+
+@app.get("/api/v1/auth/modes")
+def api_auth_modes() -> dict[str, Any]:
+    """获取当前启用的认证模式、策略及配置状态。
+
+    靶机实验中用于信息收集——了解目标支持哪些认证方式。
+    """
+    policy_labels = {
+        "any": "单通道 OR — Cookie/API Key/JWT 任选其一（默认）",
+        "cookie_apikey_and": "Cookie + API Key 双层 AND — 两者必须同时有效",
+        "high_security": "高安全模式 — Cookie + Admin API Key AND，JWT 禁用",
+    }
+    modes = {
+        "cookie": {
+            "enabled": LAB_AUTH_MODE_COOKIE,
+            "method": "POST /login (JSON/Form)",
+            "description": "用户名+密码登录，获取 Fernet 加密的 lab_session cookie",
+            "session_ttl": "24 hours",
+            "csrf_protection": "SameSite=Lax",
+        },
+        "apikey": {
+            "enabled": LAB_AUTH_MODE_APIKEY,
+            "method": "x-api-key header / Authorization: Bearer <key> / ?api_key=<key>",
+            "description": "预置 API Key，不同 key 对应不同角色权限",
+            "available_roles": list({v["role"] for v in LAB_API_KEYS.values()}),
+        },
+        "jwt": {
+            "enabled": LAB_AUTH_MODE_JWT and _auth_policy == "any",
+            "method": "Authorization: Bearer <jwt_token>",
+            "algorithm": LAB_JWT_ALGORITHM,
+            "token_endpoint": "POST /api/v1/auth/token",
+            "default_ttl_hours": LAB_JWT_EXPIRATION_HOURS,
+            "description": "JWT Bearer Token 认证，默认使用弱密钥 HS256",
+            "disabled_reason": "JWT 在当前策略下不可用" if _auth_policy != "any" else None,
+        },
+    }
+    active_count = sum(1 for m in modes.values() if m["enabled"])
+    return {
+        "active_modes": active_count,
+        "auth_enabled": _auth_runtime_enabled,
+        "auth_policy": _auth_policy,
+        "auth_policy_description": policy_labels.get(_auth_policy, _auth_policy),
+        "modes": modes,
+        "available_modes": _build_available_modes(),
+        "training_note": (
+            "使用 POST /api/v1/auth/policy 切换认证策略。"
+            "靶机实验可对比 any（单通道攻破即通）与 cookie_apikey_and/high_security（需同时击穿双层防线）的安全性差异。"
+        ),
+    }
 
 
 # ═══════════════════════════════════════════════════════════
@@ -1554,8 +2136,18 @@ def update_rate_limit(payload: RateLimitUpdate) -> dict[str, Any]:
 
 @app.get("/api/health")
 @app.get("/api/v1/health")
-def health() -> dict[str, str]:
-    return {"status": "ok", "defense_mode": LAB_DEFENSE_MODE}
+def health() -> dict[str, Any]:
+    return {
+        "status": "ok",
+        "defense_mode": LAB_DEFENSE_MODE,
+        "auth_enabled": _auth_runtime_enabled,
+        "auth_policy": _auth_policy,
+        "auth_modes": {
+            "cookie": LAB_AUTH_MODE_COOKIE,
+            "apikey": LAB_AUTH_MODE_APIKEY,
+            "jwt": LAB_AUTH_MODE_JWT,
+        },
+    }
 
 
 # ═══════════════════════════════════════════════════════════
@@ -2716,6 +3308,383 @@ def airt300_reset(module_id: str) -> dict[str, Any]:
 @app.get("/api/v1/openairt300/attempts/{module_id}")
 def airt300_attempts(module_id: str = "") -> Any:
     return get_openairt_attempts(module_id)
+
+
+# ═══════════════════════════════════════════════════════════
+#  AI-300 Frameworks 集成 API 端点
+#  覆盖: 向量数据库 / Agent框架 / RAG框架 / 供应链 / 对抗ML / 多模态 / 基础设施
+# ═══════════════════════════════════════════════════════════
+
+# ── M6: 向量数据库 ────────────────────────────────────────
+
+# Qdrant
+@app.get("/api/v1/frameworks/vdb/qdrant/collections")
+def fw_qdrant_collections() -> dict[str, Any]:
+    return handle_qdrant_collections()
+
+@app.get("/api/v1/frameworks/vdb/qdrant/collections/{name}")
+def fw_qdrant_collection_info(name: str) -> dict[str, Any]:
+    return handle_qdrant_collection_info(name)
+
+@app.get("/api/v1/frameworks/vdb/qdrant/search")
+def fw_qdrant_search(collection: str = "enterprise_kb", q: str = "", limit: int = 5, filter: str = "") -> dict[str, Any]:
+    return handle_qdrant_search(collection, q, limit, filter)
+
+@app.get("/api/v1/frameworks/vdb/qdrant/scroll")
+def fw_qdrant_scroll(collection: str, offset: int = 0, limit: int = 10) -> dict[str, Any]:
+    return handle_qdrant_scroll(collection, offset, limit)
+
+# FAISS
+@app.get("/api/v1/frameworks/vdb/faiss/info")
+def fw_faiss_info() -> dict[str, Any]:
+    return handle_faiss_info()
+
+@app.get("/api/v1/frameworks/vdb/faiss/search")
+def fw_faiss_search(index: str = "documents", k: int = 5) -> dict[str, Any]:
+    return handle_faiss_search(index, k)
+
+# PGVector
+@app.get("/api/v1/frameworks/vdb/pgvector/query")
+def fw_pgvector_query(table: str = "document_embeddings", query: str = "", access_level: str = "") -> dict[str, Any]:
+    return handle_pgvector_query(table, query, access_level)
+
+# Milvus
+@app.get("/api/v1/frameworks/vdb/milvus/collections")
+def fw_milvus_collections() -> dict[str, Any]:
+    return handle_milvus_collections()
+
+@app.get("/api/v1/frameworks/vdb/milvus/query")
+def fw_milvus_query(collection: str = "user_profiles", output_fields: str = "") -> dict[str, Any]:
+    return handle_milvus_query(collection, output_fields)
+
+# Weaviate
+@app.get("/api/v1/frameworks/vdb/weaviate/schema")
+def fw_weaviate_schema() -> dict[str, Any]:
+    return handle_weaviate_schema()
+
+@app.post("/api/v1/frameworks/vdb/weaviate/graphql")
+def fw_weaviate_graphql(query: str = Query(default="")) -> dict[str, Any]:
+    return handle_weaviate_graphql(query)
+
+# Pinecone
+@app.get("/api/v1/frameworks/vdb/pinecone/indexes")
+def fw_pinecone_indexes() -> dict[str, Any]:
+    return handle_pinecone_indexes()
+
+# Elasticsearch
+@app.get("/api/v1/frameworks/vdb/es/mapping")
+def fw_es_mapping() -> dict[str, Any]:
+    return handle_es_mapping()
+
+
+# ── M6: Embedding 模型 ────────────────────────────────────
+
+@app.get("/api/v1/frameworks/embeddings/models")
+def fw_emb_models() -> dict[str, Any]:
+    return handle_emb_models()
+
+@app.get("/api/v1/frameworks/embeddings/compare")
+def fw_emb_compare(query: str = Query(default="")) -> dict[str, Any]:
+    return handle_emb_compare(query)
+
+@app.get("/api/v1/frameworks/embeddings/inversion")
+def fw_emb_inversion(query: str = Query(default="")) -> dict[str, Any]:
+    return handle_emb_inversion(query)
+
+
+# ── M6: RAG 框架 ──────────────────────────────────────────
+
+# LlamaIndex
+@app.get("/api/v1/frameworks/rag/llamaindex/pipelines")
+def fw_llamaindex_pipelines() -> dict[str, Any]:
+    return handle_llamaindex_pipelines()
+
+@app.get("/api/v1/frameworks/rag/llamaindex/load")
+def fw_llamaindex_load(path: str = Query(default="")) -> dict[str, Any]:
+    return handle_llamaindex_load(path)
+
+@app.post("/api/v1/frameworks/rag/llamaindex/query")
+def fw_llamaindex_query(query: str = Query(default="")) -> dict[str, Any]:
+    return handle_llamaindex_query(query)
+
+# Haystack
+@app.get("/api/v1/frameworks/rag/haystack/info")
+def fw_haystack_info(pipeline: str = "rag_pipeline") -> dict[str, Any]:
+    return handle_haystack_info(pipeline)
+
+@app.get("/api/v1/frameworks/rag/haystack/query")
+def fw_haystack_query(query: str = Query(default="")) -> dict[str, Any]:
+    return handle_haystack_query(query)
+
+@app.post("/api/v1/frameworks/rag/haystack/component")
+def fw_haystack_component(code: str = Query(default="")) -> dict[str, Any]:
+    return handle_haystack_component(code)
+
+# RAGFlow
+@app.get("/api/v1/frameworks/rag/ragflow/datasets")
+def fw_ragflow_datasets() -> dict[str, Any]:
+    return handle_ragflow_datasets()
+
+
+# ── M7: Agent 框架 ────────────────────────────────────────
+
+# CrewAI
+@app.get("/api/v1/frameworks/agents/crewai/crews")
+def fw_crewai_crews() -> dict[str, Any]:
+    return handle_crewai_crews()
+
+@app.post("/api/v1/frameworks/agents/crewai/add-agent")
+def fw_crewai_add_agent(payload: FWAgentInjectRequest) -> dict[str, Any]:
+    return handle_crewai_add_agent(payload.crew_id, payload.agent_name, payload.role, payload.goal, payload.backstory, payload.tools)
+
+@app.post("/api/v1/frameworks/agents/crewai/execute")
+def fw_crewai_execute(payload: FWAgentTaskRequest) -> dict[str, Any]:
+    return handle_crewai_execute(payload.crew_id, payload.task, payload.agent)
+
+# AutoGen
+@app.get("/api/v1/frameworks/agents/autogen")
+def fw_autogen_agents() -> dict[str, Any]:
+    return handle_autogen_agents()
+
+@app.post("/api/v1/frameworks/agents/autogen/chat")
+def fw_autogen_chat(payload: FWAgentChatRequest) -> dict[str, Any]:
+    return handle_autogen_chat(payload.agent_name, payload.message)
+
+@app.post("/api/v1/frameworks/agents/autogen/register")
+def fw_autogen_register(payload: FWAgentRegisterRequest) -> dict[str, Any]:
+    return handle_autogen_register(payload.name, payload.system_message, payload.can_execute_code)
+
+# Google ADK
+@app.get("/api/v1/frameworks/agents/adk")
+def fw_adk_agents() -> dict[str, Any]:
+    return handle_adk_agents()
+
+@app.post("/api/v1/frameworks/agents/adk/chat")
+def fw_adk_chat(payload: FWAgentChatRequest) -> dict[str, Any]:
+    return handle_adk_chat(payload.agent_name, payload.message)
+
+@app.post("/api/v1/frameworks/agents/adk/add-tool")
+def fw_adk_add_tool(agent_name: str = Query(default=""), tool_name: str = Query(default="")) -> dict[str, Any]:
+    return handle_adk_add_tool(agent_name, tool_name)
+
+# Semantic Kernel
+@app.get("/api/v1/frameworks/agents/sk/plugins")
+def fw_sk_plugins() -> dict[str, Any]:
+    return handle_sk_plugins()
+
+@app.post("/api/v1/frameworks/agents/sk/invoke")
+def fw_sk_invoke(payload: FWToolExecuteRequest) -> dict[str, Any]:
+    return handle_sk_invoke(payload.plugin, payload.function, payload.arguments)
+
+# Agent list
+@app.get("/api/v1/frameworks/agents/list")
+def fw_agents_list() -> dict[str, Any]:
+    return {"autogen": handle_autogen_agents(), "adk": handle_adk_agents(), "sk": handle_sk_plugins()}
+
+# Dify / Coze
+@app.get("/api/v1/frameworks/agents/dify")
+def fw_dify() -> dict[str, Any]:
+    return handle_dify_apps()
+
+@app.get("/api/v1/frameworks/agents/coze")
+def fw_coze() -> dict[str, Any]:
+    return handle_coze_bots()
+
+# MetaGPT
+@app.get("/api/v1/frameworks/agents/metagpt/roles")
+def fw_metagpt_roles() -> dict[str, Any]:
+    return handle_metagpt_roles()
+
+@app.post("/api/v1/frameworks/agents/metagpt/startup")
+def fw_metagpt_startup(idea: str = Query(default="Build a chat app")) -> dict[str, Any]:
+    return handle_metagpt_startup(idea)
+
+# LangGraph
+@app.get("/api/v1/frameworks/agents/langgraph/graphs")
+def fw_langgraph_graphs() -> dict[str, Any]:
+    return handle_langgraph_graphs()
+
+@app.get("/api/v1/frameworks/agents/langgraph/visualize")
+def fw_langgraph_visualize(graph_id: str = "customer_support") -> dict[str, Any]:
+    return handle_langgraph_visualize(graph_id)
+
+# Flowise / n8n
+@app.get("/api/v1/frameworks/agents/flowise")
+def fw_flowise() -> dict[str, Any]:
+    return handle_flowise_flows()
+
+@app.get("/api/v1/frameworks/agents/n8n")
+def fw_n8n() -> dict[str, Any]:
+    return handle_n8n_workflows()
+
+
+# ── M8: MCP 扩展 ─────────────────────────────────────────
+
+@app.get("/api/v1/frameworks/mcp/servers")
+def fw_mcp_servers() -> dict[str, Any]:
+    return handle_mcp_ext_servers()
+
+@app.get("/api/v1/frameworks/mcp/fastmcp")
+def fw_mcp_fastmcp() -> dict[str, Any]:
+    return handle_mcp_fastmcp()
+
+@app.get("/api/v1/frameworks/mcp/a2a")
+def fw_mcp_a2a() -> dict[str, Any]:
+    return handle_a2a_agent_card()
+
+
+# ── M9: AI/ML 供应链 ─────────────────────────────────────
+
+@app.get("/api/v1/frameworks/supplychain/hf/models")
+def fw_hf_models() -> dict[str, Any]:
+    return handle_hf_models()
+
+@app.get("/api/v1/frameworks/supplychain/hf/models/{model_id:path}")
+def fw_hf_model_info(model_id: str) -> dict[str, Any]:
+    return handle_hf_model_info(model_id)
+
+@app.get("/api/v1/frameworks/supplychain/hf/scan-pickle")
+def fw_hf_scan_pickle(repo_id: str = Query(default="")) -> dict[str, Any]:
+    return handle_hf_scan_pickle(repo_id)
+
+@app.get("/api/v1/frameworks/supplychain/mlflow/experiments")
+def fw_mlflow_experiments() -> dict[str, Any]:
+    return handle_mlflow_experiments()
+
+@app.get("/api/v1/frameworks/supplychain/mlflow/runs")
+def fw_mlflow_runs(experiment_id: str = "1") -> dict[str, Any]:
+    return handle_mlflow_runs(experiment_id)
+
+@app.post("/api/v1/frameworks/supplychain/mlflow/register")
+def fw_mlflow_register(payload: FWMLflowRegisterRequest) -> dict[str, Any]:
+    return handle_mlflow_register(payload.model_name, payload.run_id)
+
+@app.post("/api/v1/frameworks/supplychain/mlflow/deploy")
+def fw_mlflow_deploy(payload: FWMLflowDeployRequest) -> dict[str, Any]:
+    return handle_mlflow_deploy(payload.model_name, payload.stage)
+
+@app.get("/api/v1/frameworks/supplychain/mlflow/artifacts")
+def fw_mlflow_artifacts(run_id: str = Query(default="run-abc")) -> dict[str, Any]:
+    return handle_mlflow_artifacts(run_id)
+
+@app.get("/api/v1/frameworks/supplychain/pypi/scan")
+def fw_pypi_scan(package: str = Query(default="guardai-ml-utils")) -> dict[str, Any]:
+    return handle_pypi_scan(package)
+
+@app.get("/api/v1/frameworks/supplychain/wandb/runs")
+def fw_wandb_runs() -> dict[str, Any]:
+    return handle_wandb_runs()
+
+
+# ── M10: Adversarial ML ───────────────────────────────────
+
+@app.get("/api/v1/frameworks/adversarial/models")
+def fw_adv_models() -> dict[str, Any]:
+    return handle_adv_models()
+
+@app.post("/api/v1/frameworks/adversarial/attack")
+def fw_adv_attack(payload: FWAdversarialRequest) -> dict[str, Any]:
+    return handle_adv_attack(payload.model_name, payload.attack_type, payload.input_data)
+
+@app.post("/api/v1/frameworks/adversarial/extraction")
+def fw_adv_extraction(payload: FWModelExtractionRequest) -> dict[str, Any]:
+    return handle_model_extraction(payload.target_model, payload.query, payload.session_id)
+
+
+# ── M11: Multimodal ───────────────────────────────────────
+
+@app.get("/api/v1/frameworks/multimodal/models")
+def fw_multimodal_models() -> dict[str, Any]:
+    return handle_multimodal_models()
+
+@app.post("/api/v1/frameworks/multimodal/image")
+def fw_multimodal_image(payload: FWMultimodalRequest) -> dict[str, Any]:
+    return handle_image_injection(payload.content, payload.injection_text)
+
+@app.post("/api/v1/frameworks/multimodal/pdf")
+def fw_multimodal_pdf(payload: FWMultimodalRequest) -> dict[str, Any]:
+    return handle_pdf_injection(payload.content)
+
+@app.get("/api/v1/frameworks/multimodal/audio")
+def fw_multimodal_audio() -> dict[str, Any]:
+    return handle_audio_injection()
+
+
+# ── M12: AI Infrastructure ────────────────────────────────
+
+@app.get("/api/v1/frameworks/infra/vllm/models")
+def fw_vllm_models() -> dict[str, Any]:
+    return handle_vllm_models()
+
+@app.post("/api/v1/frameworks/infra/vllm/chat")
+async def fw_vllm_chat(request: Request) -> dict[str, Any]:
+    body = await request.json()
+    return handle_vllm_chat(body.get("model", ""), body.get("messages", []))
+
+@app.get("/api/v1/frameworks/infra/vllm/metrics")
+def fw_vllm_metrics() -> dict[str, Any]:
+    return handle_vllm_metrics()
+
+@app.get("/api/v1/frameworks/infra/tgi/info")
+def fw_tgi_info() -> dict[str, Any]:
+    return handle_tgi_info()
+
+@app.post("/api/v1/frameworks/infra/tgi/generate")
+async def fw_tgi_generate(request: Request) -> dict[str, Any]:
+    body = await request.json()
+    return handle_tgi_generate(body.get("inputs", body.get("prompt", "")))
+
+@app.get("/api/v1/frameworks/infra/triton/models")
+def fw_triton_models() -> dict[str, Any]:
+    return handle_triton_models()
+
+@app.post("/api/v1/frameworks/infra/triton/infer")
+async def fw_triton_infer(request: Request) -> dict[str, Any]:
+    body = await request.json()
+    return handle_triton_infer(body.get("model_name", ""), body.get("inputs", []))
+
+@app.get("/api/v1/frameworks/infra/bentoml/services")
+def fw_bentoml_services() -> dict[str, Any]:
+    return handle_bentoml_services()
+
+@app.post("/api/v1/frameworks/infra/bentoml/predict")
+def fw_bentoml_predict(service: str = Query(default="iris_classifier")) -> dict[str, Any]:
+    return handle_bentoml_predict(service)
+
+@app.get("/api/v1/frameworks/infra/ray/deployments")
+def fw_ray_deployments() -> dict[str, Any]:
+    return handle_ray_deployments()
+
+@app.get("/api/v1/frameworks/infra/kserve/services")
+def fw_kserve_services() -> dict[str, Any]:
+    return handle_kserve_services()
+
+@app.get("/api/v1/frameworks/infra/k8s/resources")
+def fw_k8s_resources() -> dict[str, Any]:
+    return handle_k8s_ai_resources()
+
+
+# ── M13: 方法论 ───────────────────────────────────────────
+
+@app.get("/api/v1/frameworks/methodology")
+def fw_methodology() -> dict[str, Any]:
+    return handle_methodology()
+
+
+# ── 框架元数据总览 ────────────────────────────────────────
+
+@app.get("/api/v1/frameworks/overview")
+def fw_overview() -> dict[str, Any]:
+    """返回全部 AI-300 框架/组件的元数据总览，含 API 接口类型、数据库、Agent 框架、RAG、MCP 等详细枚举"""
+    return handle_frameworks_overview()
+
+
+@app.get("/api/v1/frameworks/overview/category/{category}")
+def fw_overview_category(category: str) -> dict[str, Any]:
+    """按分类获取框架元数据: api_interfaces, vector_databases, embedding_models, rag_frameworks, agent_frameworks, mcp_ecosystem, supply_chain, adversarial_ml, multimodal, ai_infrastructure, methodology_frameworks"""
+    if category not in FRAMEWORKS_METADATA:
+        raise HTTPException(404, f"Category '{category}' not found. Available: {list(FRAMEWORKS_METADATA.keys())}")
+    return {"status": "ok", "category": category, "data": FRAMEWORKS_METADATA[category]}
 
 
 # ═══════════════════════════════════════════════════════════

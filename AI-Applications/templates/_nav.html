@@ -12,6 +12,11 @@
   <a href="/ai/admin/lab" class="nav-link">观测台</a>
   <a href="/ai/admin/rate-limit" class="nav-link">限流</a>
   <span class="nav-spacer"></span>
+  {% if auth_policy is defined and auth_policy != 'any' %}
+  <span class="nav-policy-badge" title="当前认证策略：{{ auth_policy }}">
+    {% if auth_policy == 'cookie_apikey_and' %}🔐 双层{% elif auth_policy == 'high_security' %}🛡️ 高安全{% endif %}
+  </span>
+  {% endif %}
   {% if auth_enabled is defined %}
   <button id="auth-toggle" class="btn btn-sm nav-auth-btn" title="临时关闭/开启 Web 认证">
     {% if auth_enabled %}🔒 认证{% else %}🔓 无认证{% endif %}

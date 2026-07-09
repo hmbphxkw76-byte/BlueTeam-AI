@@ -1,7 +1,71 @@
-# AISecLab v0.4.0 — Release Notes
+# AISecLab v0.5.0 — Release Notes
 
 > AI 安全训练靶机 + 智能客服模拟平台  
 > 面向 AI Red Team 训练的综合性本地靶场
+
+---
+
+## v0.5.0 更新内容
+
+### 🔐 多模式认证引擎 — 3 通道 × 3 策略
+
+**新增三种认证通道（可独立启停）：**
+
+| 通道 | 环境变量 | 说明 |
+|------|----------|------|
+| Cookie Session | `LAB_AUTH_MODE_COOKIE` | Fernet 加密 Session Cookie |
+| API Key | `LAB_AUTH_MODE_APIKEY` | x-api-key/Bearer/query 三种载体，含角色绑定 |
+| JWT Token | `LAB_AUTH_MODE_JWT` | HS256 签名，含签发/验证/debug 端点 |
+
+**新增三种认证策略（运行时可切换）：**
+
+| 策略 | `LAB_AUTH_POLICY` | 逻辑 | 说明 |
+|------|-------------------|------|------|
+| `any`（默认）| `any` | Cookie **OR** API Key **OR** JWT | 单通道，覆盖 90% 场景 |
+| `cookie_apikey_and` | `cookie_apikey_and` | Cookie **AND** API Key | 双层，模拟企业 AI 网关 |
+| `high_security` | `high_security` | Cookie **AND** Admin API Key | JWT 禁用，模拟金融/军工级 |
+
+**新增认证 API 端点：**
+
+| 端点 | 说明 |
+|------|------|
+| `GET /api/v1/auth/status` | 当前认证状态与策略 |
+| `GET /api/v1/auth/modes` | 所有认证模式详情 |
+| `POST /api/v1/auth/policy` | 运行时切换认证策略 |
+| `POST /api/v1/auth/token` | 签发 JWT Token |
+| `POST /api/v1/auth/token/verify` | 验证 JWT Token |
+| `GET /api/v1/auth/token/debug` | JWT 调试信息（靶机训练用）|
+| `POST /api/v1/auth/apikey` | Admin 签发新 API Key |
+| `GET /api/v1/auth/apikeys` | 列出所有 API Key |
+
+**Web UI 策略切换：**
+
+- 观测台 `/ai/admin/lab` → 认证策略切换面板
+- 导航栏：非 `any` 策略时显示 Badge（`🔐 双层` / `🛡️ 高安全`）
+
+**靶机训练场景扩展：**
+
+- 场景 G（双层 AND）：需同时击穿 Cookie + API Key 两道防线
+- 场景 H（高安全模式）：需 Cookie + Admin API Key
+
+**新增文档：**
+
+- `knowledge_base/scenarios/auth_modes_guide.md` — 完整认证架构与靶机实验指南（616 行）
+- `knowledge_base/scenarios/ai300_frameworks_guide.md` — AI-300 Frameworks 靶机训练指南
+
+### 🧩 AI-300 Frameworks 集成模块
+
+新增 `src/llamafw/ai300_frameworks.py`（80+ API 端点），覆盖 7 大类别靶机训练：
+
+| 类别 | 框架/组件 | 端点前缀 |
+|------|-----------|----------|
+| 向量数据库 | Qdrant, FAISS, PGVector, Milvus, Weaviate, Pinecone, ES | `/api/v1/frameworks/vdb/` |
+| Agent 框架 | CrewAI, AutoGen, ADK, Semantic Kernel, MetaGPT, Dify, Coze, A2A | `/api/v1/frameworks/agents/` |
+| RAG 框架 | LlamaIndex, Haystack, RAGFlow | `/api/v1/frameworks/rag/` |
+| Embedding | 多模型对比、嵌入反演 | `/api/v1/frameworks/embeddings/` |
+| 模型服务 | vLLM, TGI, Ollama, Ray Serve, KServe, LiteLLM | `/api/v1/frameworks/serving/` |
+| 供应链安全 | HuggingFace, MLflow, PyPI, W&B | `/api/v1/frameworks/supplychain/` |
+| 对抗性 ML / 多模态 | 模型窃取、对抗样本、图像/PDF/音频注入 | `/api/v1/frameworks/adversarial/` |
 
 ---
 
@@ -38,7 +102,7 @@
 
 | 项目 | 说明 |
 |------|------|
-| **版本号** | 0.4.0 |
+| **版本号** | 0.5.0 |
 | **发布日期** | 2026-07-09 |
 | **Python** | >= 3.11 |
 | **许可证** | MIT |
@@ -85,7 +149,7 @@
 
 ## 核心能力
 
-### 🔐 AI 安全训练靶机 — 16 个实验模块
+### 🔐 AI 安全训练靶机 — 16 个实验模块 + 80+ Frameworks 端点
 
 #### LLM 核心 (9 个)
 | ID | 模块 | 难度 | 核心技能 |
@@ -110,6 +174,18 @@
 | ai300-infra-recon | AI Infra Recon | 中级 | robots.txt 侦察、端点发现、信息收集 |
 | ai300-api-attacks | API & Endpoint Attacks | 中级 | API 速率限制攻防、DoS 测试 |
 | ai300-model-serving | Model Serving Exploits | 高级 | 模型服务漏洞、SSRF、容器逃逸线索 |
+
+#### AI-300 Frameworks 集成 (7 大类, 80+ 端点)
+
+| 类别 | 覆盖组件 |
+|------|----------|
+| 向量数据库 | Qdrant, FAISS, PGVector, Milvus, Weaviate, Pinecone, Elasticsearch |
+| Agent 框架 | CrewAI, AutoGen, Google ADK, Semantic Kernel, MetaGPT, Dify, Coze, A2A |
+| RAG 框架 | LlamaIndex, Haystack, RAGFlow |
+| 模型服务 | vLLM, TGI, Ollama, Ray Serve, KServe, LiteLLM |
+| 供应链安全 | HuggingFace, MLflow, PyPI, W&B |
+| 对抗性 ML | 模型窃取、对抗样本、成员推断 |
+| 多模态 | 图像注入、PDF 注入、音频注入 |
 
 ### 🤖 AI Agent 智能决策
 - 对话结束自动分析（LLM 驱动 + 规则回退）
@@ -180,13 +256,14 @@ AI-Applications/
 │
 ├── src/llamafw/                   # 核心代码包
 │   ├── __init__.py                # 包导出
-│   ├── app.py                     # FastAPI 应用（2714 行，~70+ 路由）
+│   ├── app.py                     # FastAPI 应用（280+ 路由）
 │   ├── config.py                  # 配置管理（环境变量、路径、模型）
 │   ├── core.py                    # 核心逻辑（LLM、工具、安全过滤）
-│   ├── database.py                # 异步 SQLite 数据访问层（11 表）
+│   ├── database.py                # 异步 SQLite 数据访问层（12 表）
 │   ├── vector_rag.py              # ChromaDB 向量检索引擎
 │   ├── ai300_modules.py           # AI-300 补充实验模块
 │   ├── ai300_owasp_modules.py     # OWASP Top 10 实验模块
+│   ├── ai300_frameworks.py        # AI-300 Frameworks 集成（80+ 端点）
 │   └── openairt300_backend.py     # OpenAIRT-300 课程后端
 │
 ├── templates/                     # Jinja2 模板（13 个页面）
@@ -218,7 +295,9 @@ AI-Applications/
 │   ├── product_manuals/usb_c_cables.md  # USB-C 线缆手册
 │   └── scenarios/
 │       ├── prompt_injection_series.md   # 提示词注入 3 级递进训练
-│       └── advanced_attack_scenarios.md # AICrypto 与 AI+Web 复合漏洞
+│       ├── advanced_attack_scenarios.md # AICrypto 与 AI+Web 复合漏洞
+│       ├── auth_modes_guide.md          # 多模式认证架构与靶机实验指南
+│       └── ai300_frameworks_guide.md    # AI-300 Frameworks 靶机训练指南
 │
 ├── scripts/                       # 辅助工具
 │   ├── run.py                     # 本地开发快速启动
@@ -242,7 +321,7 @@ AI-Applications/
 
 ## 数据库设计
 
-共 **11 张表**，SQLite + WAL 模式，外键约束：
+共 **12 张表**，SQLite + WAL 模式，外键约束：
 
 | 表名 | 用途 | 关键字段 |
 |------|------|----------|
@@ -257,6 +336,7 @@ AI-Applications/
 | `knowledge_base` | 知识库文档 | title, content, classification |
 | `document_chunks` | 文档分块 | chunk_text, embedding_id |
 | `user_preferences` | 用户偏好 | preference_key, preference_value |
+| `audit_events` | 审计事件日志 | kind, detail, created_at |
 
 ---
 
@@ -420,7 +500,6 @@ LAB_TLS_HOSTS=localhost,127.0.0.1,0.0.0.0
 | 会话加密 | cryptography (Fernet) | >= 42.0.0 |
 | LLM 客户端 | openai | >= 1.0.0 |
 | HTTP 客户端 | httpx | >= 0.27.0 |
-| 图片处理 | Pillow | >= 10.0.0 |
 
 ---
 
@@ -439,6 +518,7 @@ LAB_TLS_HOSTS=localhost,127.0.0.1,0.0.0.0
 | 参考策略 | Referrer-Policy: strict-origin-when-cross-origin |
 | 输入过滤 | 5 级 AI 安全防线，关键词/语义/意图检测 |
 | 管理认证 | Admin Token 头验证 |
+| 多模式认证 | Cookie / API Key / JWT + 3 策略 |
 
 ---
 
