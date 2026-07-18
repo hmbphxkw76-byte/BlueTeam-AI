@@ -207,6 +207,26 @@ from .input_sanitizer import (
     MemoryTrust,
     MemoryRecord,
 )
+from .ai_recon import (
+    RECON_MODULES,
+    RECON_MODULES_BY_ID,
+    AI_RECON_METHODOLOGY,
+    SYSPROMPT_TECHNIQUES,
+    WORLD_EVENTS,
+    WAF_SIGNATURES,
+    BEHAVIORAL_CATEGORIES,
+    _RATE_MAX, _RATE_WINDOW,
+    _WAF_CONFIGS, _AGENT_CARDS,
+    _calc_sysprompt_extraction_score,
+    _respond_with_guardrail,
+    _respond_knowledge_cutoff,
+    _eval_knowledge_cutoff,
+    _check_rate_limit,
+    _serve_waf_endpoint,
+    _discover_agent_card,
+    _profile_behavior,
+    _get_behavioral_profile,
+)
 from .ai300_frameworks import (
     FRAMEWORKS_MODULES,
     # VDB handlers
@@ -1140,6 +1160,11 @@ AUTH_EXEMPT_PREFIXES = (
     "/api/v1/challenges", "/api/v1/defense",
     "/api/v1/sanitizer", "/api/v1/security-systems",
     "/api/v1/mcp-safety", "/api/v1/knowledge",
+    "/api/v1/recon", "/api/v1/openairt300",
+    "/api/v1/model/",
+    # 聊天 API（home 页面无需认证即可使用）
+    "/api/v1/conversations", "/api/v1/chat/",
+    "/api/conversations", "/api/chat/",
 )
 AUTH_EXEMPT_PATHS = {"/", "/robots.txt"}
 
@@ -1488,9 +1513,19 @@ async def startup() -> None:
 
     # ── 初始化向量 RAG ──
     try:
-        from .vector_rag import index_knowledge_base
-        result = index_knowledge_base()
-        logger_info["vector_rag"] = result.get("message", "initialized")
+        from .vector_rag import enable_rag
+        # 检查环境变量：设置 ENABLE_VECTOR_RAG=1 可启动时自动启用
+        if os.environ.get("ENABLE_VECTOR_RAG", "").strip() == "1":
+            print("[AISecLab] 检测到 ENABLE_VECTOR_RAG=1，自动启用向量 RAG ...")
+            vec_ok = enable_rag()
+            if vec_ok:
+                from .vector_rag import index_knowledge_base
+                result = index_knowledge_base()
+                logger_info["vector_rag"] = result.get("message", "initialized")
+            else:
+                logger_info["vector_rag"] = "启用失败，可稍后通过 API 手动启用"
+        else:
+            logger_info["vector_rag"] = "skipped（模型下载已跳过，调用 POST /api/v1/knowledge-base/download-model 启用）"
     except Exception as e:
         logger_info["vector_rag"] = f"error: {e}"
 
@@ -1600,13 +1635,7 @@ def admin_lab(request: Request) -> HTMLResponse:
     )
 
 
-@app.get("/lobechat", response_class=HTMLResponse)
-@app.get("/ai/lobechat", response_class=HTMLResponse)
-def lobechat_page(request: Request) -> HTMLResponse:
-    return templates.TemplateResponse(
-        request, "lobechat.html",
-        {"lab_name": LAB_NAME, "auth_enabled": _auth_runtime_enabled},
-    )
+
 
 
 @app.get("/rate-limit", response_class=HTMLResponse)
@@ -2226,9 +2255,10 @@ def api_test_model_connection(payload: ModelConfigSave) -> dict[str, Any]:
 
     try:
         import httpx
-        # Ollama 等本地服务无需认证，传空 Bearer 即可
-        auth_key = api_key or "ollama"
-        headers = {"Authorization": f"Bearer {auth_key}", "Content-Type": "application/json"}
+        # Ollama 等本地服务无需认证，空 key 时不传 Authorization 头
+        headers: dict[str, str] = {"Content-Type": "application/json"}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
         body = {"model": model, "messages": [{"role": "user", "content": "hi"}], "max_tokens": 1}
         resp = httpx.post(f"{base_url}/chat/completions", json=body, headers=headers, timeout=15)
         if resp.status_code == 200:
@@ -2563,6 +2593,34 @@ async def api_kb_stats() -> dict[str, Any]:
     from .vector_rag import get_rag
     rag = get_rag()
     return rag.get_collection_stats()
+
+
+@app.post("/api/v1/knowledge-base/download-model")
+async def api_kb_download_model() -> dict[str, Any]:
+    """手动下载 embedding 模型，启用向量 RAG 和安全系统 RAG。
+
+    调用后：
+    - VectorRAG（知识库语义搜索）启用
+    - Security RAGSystem（安全系统 RAG 教学）启用
+    国内用户建议设置环境变量 HF_ENDPOINT=https://hf-mirror.com 后再调用。
+    """
+    results: dict[str, Any] = {}
+
+    # 启用 VectorRAG（知识库语义搜索）
+    from .vector_rag import enable_rag, index_knowledge_base
+    vec_ok = enable_rag()
+    results["vector_rag"] = {"enabled": vec_ok, "message": "知识库向量 RAG 已就绪" if vec_ok else "启用失败，请检查 HF_ENDPOINT 设置"}
+    if vec_ok:
+        idx_result = index_knowledge_base()
+        results["vector_rag"]["indexed"] = idx_result
+
+    # 启用 Security RAGSystem（安全系统教学）
+    from .security_systems import _rag_system as rs
+    sec_ok = rs.enable()
+    results["security_rag"] = {"enabled": sec_ok, "message": "安全系统 RAG 已就绪" if sec_ok else "使用 fallback 模式"}
+
+    all_ok = vec_ok or sec_ok
+    return {"success": all_ok, "message": "RAG 系统已启用" if all_ok else "启用失败", "details": results}
 
 
 @app.post("/api/v1/knowledge-base/reindex")
@@ -4229,6 +4287,250 @@ def get_owasp_prevention(category: str) -> dict[str, Any]:
     if category not in OWASP_PREVENTION_STRATEGIES:
         raise HTTPException(404, f"Category '{category}' not found. Available: {list(OWASP_PREVENTION_STRATEGIES.keys())}")
     return {"status": "ok", "category": category, "prevention": OWASP_PREVENTION_STRATEGIES[category]}
+
+
+# ═══════════════════════════════════════════════════════════
+#  AI 侦察模块 API (R1-R6)
+# ═══════════════════════════════════════════════════════════
+
+@app.get("/api/v1/recon/modules")
+def recon_list_modules() -> dict[str, Any]:
+    """列出所有侦察模块."""
+    return {"status": "ok", "modules": RECON_MODULES, "count": len(RECON_MODULES)}
+
+
+@app.get("/api/v1/recon/methodology")
+def recon_methodology() -> dict[str, Any]:
+    """获取 AI 渗透测试侦察方法论."""
+    return {"status": "ok", **AI_RECON_METHODOLOGY}
+
+
+# ── R1: System Prompt Extraction ──
+
+class R1ExtractRequest(BaseModel):
+    text: str
+    session_id: str = "default"
+
+
+@app.post("/api/v1/recon/system-prompt/extract")
+def recon_r1_extract(payload: R1ExtractRequest) -> dict[str, Any]:
+    """尝试提取系统提示词（模拟LLM响应）."""
+    guard_result = _respond_with_guardrail(payload.text)
+    eval_result = _calc_sysprompt_extraction_score(payload.text)
+    return {"status": "ok", "guardrail": guard_result, "evaluation": eval_result}
+
+
+@app.get("/api/v1/recon/system-prompt/techniques")
+def recon_r1_techniques() -> dict[str, Any]:
+    """列出所有系统提示词提取技术."""
+    return {"status": "ok", "techniques": SYSPROMPT_TECHNIQUES, "count": len(SYSPROMPT_TECHNIQUES),
+            "flag_hint": "Extract 8+ secrets using 3+ distinct techniques → FLAG{sysprompt_full_extract_300}"}
+
+
+@app.post("/api/v1/recon/system-prompt/probe")
+def recon_r1_probe(payload: AIRT300ProbeRequest) -> dict[str, Any]:
+    """R1 Probe 评分."""
+    score = _calc_sysprompt_extraction_score(payload.text)
+    return {"status": "ok", "module_id": "recon-system-prompt", "score": score["rank"],
+            "techniques_used": score["techniques_detected"], "secrets_extracted": score["secrets_extracted"],
+            "flag_hint": score["flag_hint"]}
+
+
+# ── R2: Knowledge Cutoff Detection ──
+
+class R2CutoffQuery(BaseModel):
+    query: str
+    session_id: str = "default"
+
+
+class R2CutoffEstimate(BaseModel):
+    estimated_date: str
+    session_id: str = "default"
+
+
+@app.post("/api/v1/recon/knowledge-cutoff/query")
+def recon_r2_query(payload: R2CutoffQuery) -> dict[str, Any]:
+    """发送知识截止日期探测查询."""
+    return {"status": "ok", **_respond_knowledge_cutoff(payload.query, payload.session_id)}
+
+
+@app.post("/api/v1/recon/knowledge-cutoff/estimate")
+def recon_r2_estimate(payload: R2CutoffEstimate) -> dict[str, Any]:
+    """提交知识截止日期估计."""
+    return {"status": "ok", **_eval_knowledge_cutoff(payload.estimated_date, payload.session_id)}
+
+
+@app.get("/api/v1/recon/knowledge-cutoff/events")
+def recon_r2_events() -> dict[str, Any]:
+    """获取世界事件列表（教学参考）."""
+    return {"status": "ok", "events": WORLD_EVENTS, "count": len(WORLD_EVENTS),
+            "tip": "使用二分查找法：先探测2024年中，再逐步缩小范围。"}
+
+
+@app.post("/api/v1/recon/knowledge-cutoff/probe")
+def recon_r2_probe(payload: AIRT300ProbeRequest) -> dict[str, Any]:
+    """R2 Probe 评分."""
+    return {"status": "ok", "module_id": "recon-knowledge-cutoff",
+            "score": "pending", "message": "提交您的截止日期估计到 /api/v1/recon/knowledge-cutoff/estimate",
+            "flag_hint": "Estimate within 7 days using binary search → FLAG{cutoff_binary_search_300}"}
+
+
+# ── R3: Rate Limit Enumeration & Bypass ──
+
+@app.get("/api/v1/recon/rate-limit/test")
+def recon_r3_test(
+    x_forwarded_for: str = Header(default=""),
+    x_real_ip: str = Header(default=""),
+    request: Request = None,
+) -> dict[str, Any]:
+    """测试速率限制（支持Header篡改绕过）."""
+    client_ip = request.client.host if request else "127.0.0.1"
+    bypass = bool(x_forwarded_for or x_real_ip)
+    result = _check_rate_limit(client_ip, x_forwarded_for, x_real_ip, bypass_headers=bypass)
+    # Build response with rate-limit headers
+    headers = result["headers_sent"]
+    response_data = {"status": "ok", **result, "header_manipulation": {
+        "x_forwarded_for": x_forwarded_for or "(not set)",
+        "x_real_ip": x_real_ip or "(not set)",
+        "bypass_detected": result["bypass_detected"],
+        "bypass_method": result["bypass_method"],
+    }}
+    if result["rate_limited"]:
+        response_data["error"] = "Rate limit exceeded. Try again later."
+    return response_data
+
+
+@app.get("/api/v1/recon/rate-limit/info")
+def recon_r3_info() -> dict[str, Any]:
+    """获取速率限制配置信息（教学参考）."""
+    return {"status": "ok", "limit": _RATE_MAX, "window_seconds": _RATE_WINDOW,
+            "bypass_techniques": ["X-Forwarded-For spoofing", "X-Real-IP spoofing",
+                                   "Distributed requests from multiple IPs", "Request backoff/timing"],
+            "flag_hint": "Successfully bypass rate limit → FLAG{rate_limit_bypass_300}"}
+
+
+@app.post("/api/v1/recon/rate-limit/probe")
+def recon_r3_probe(payload: AIRT300ProbeRequest) -> dict[str, Any]:
+    """R3 Probe 评分."""
+    return {"status": "ok", "module_id": "recon-rate-limit",
+            "score": "pending" if "bypass" not in payload.text.lower() else "advanced",
+            "flag_hint": "Successfully bypass rate limit → FLAG{rate_limit_bypass_300}"}
+
+
+# ── R4: WAF / IPS Detection ──
+
+@app.get("/api/v1/recon/waf/probe/{waf_type}")
+def recon_r4_probe_waf(waf_type: str) -> dict[str, Any]:
+    """探测指定类型的WAF保护端点."""
+    valid_types = list(_WAF_CONFIGS.keys())
+    if waf_type not in valid_types:
+        raise HTTPException(404, f"Unknown WAF type: {waf_type}. Available: {valid_types}")
+    return {"status": "ok", **_serve_waf_endpoint(waf_type)}
+
+
+@app.get("/api/v1/recon/waf/signatures")
+def recon_r4_signatures() -> dict[str, Any]:
+    """获取WAF签名列表."""
+    return {"status": "ok", "signatures": WAF_SIGNATURES, "count": len(WAF_SIGNATURES),
+            "flag_hint": "Correctly identify 3+ WAF types → FLAG{waf_fingerprinted_300}"}
+
+
+@app.post("/api/v1/recon/waf/detect")
+def recon_r4_detect(payload: dict[str, Any]) -> dict[str, Any]:
+    """基于响应特征检测WAF."""
+    headers = payload.get("headers", {})
+    status = payload.get("status_code", 200)
+    body = payload.get("body", "")
+    cookies = payload.get("cookies", "")
+    from .ai_recon import _detect_waf
+    detected = _detect_waf(headers, status, body, cookies)
+    return {"status": "ok", "detected_count": len(detected), "detected": detected,
+            "flag_hint": "Correctly identify 3+ WAF types → FLAG{waf_fingerprinted_300}"}
+
+
+# ── R5: A2A Agent Card Discovery ──
+
+@app.get("/api/v1/recon/a2a/.well-known/agent.json")
+def recon_r5_well_known() -> dict[str, Any]:
+    """A2A Agent Card 发现端点 (.well-known/agent.json)."""
+    return {"status": "ok", **_discover_agent_card("primary", ".well-known/agent.json")}
+
+
+@app.get("/api/v1/recon/a2a/agent/{agent_name}")
+def recon_r5_agent_card(agent_name: str) -> dict[str, Any]:
+    """获取指定Agent的卡片信息."""
+    valid_agents = list(_AGENT_CARDS.keys())
+    if agent_name not in valid_agents:
+        raise HTTPException(404, f"Unknown agent: {agent_name}. Available: {valid_agents}")
+    return {"status": "ok", **_discover_agent_card(agent_name)}
+
+
+@app.get("/api/v1/recon/a2a/agents")
+def recon_r5_list_agents() -> dict[str, Any]:
+    """列出所有已知Agent（⚠️ 教学漏洞点 — 暴露shadow agent）."""
+    agents = {k: {"agent_id": v["agent_id"], "name": v["name"],
+                  "description": v["description"], "url": v["url"]}
+              for k, v in _AGENT_CARDS.items()}
+    return {"status": "ok", "agents": agents, "count": len(agents),
+            "flag_hint": "Discover all 3 agents (primary + shadow + orchestrator) → FLAG{agent_card_enumerated_300}"}
+
+
+@app.post("/api/v1/recon/a2a/probe")
+def recon_r5_probe(payload: AIRT300ProbeRequest) -> dict[str, Any]:
+    """R5 Probe 评分."""
+    discovered = set()
+    if "shadow" in payload.text.lower():
+        discovered.add("shadow")
+    if "orchestrator" in payload.text.lower() or "orchestrat" in payload.text.lower():
+        discovered.add("orchestrator")
+    if "primary" in payload.text.lower() or "guardai-security" in payload.text.lower():
+        discovered.add("primary")
+    return {"status": "ok", "module_id": "recon-a2a", "agents_discovered": len(discovered),
+            "discovered": list(discovered), "total_agents": len(_AGENT_CARDS),
+            "flag_hint": "Discover all 3 agents → FLAG{agent_card_enumerated_300}"}
+
+
+# ── R6: Behavioral Profiling ──
+
+class R6ProfileRequest(BaseModel):
+    category: str
+    input: str = ""
+
+
+@app.post("/api/v1/recon/behavioral/query")
+def recon_r6_query(payload: R6ProfileRequest) -> dict[str, Any]:
+    """在指定话题类别上发送探测."""
+    if payload.category not in BEHAVIORAL_CATEGORIES:
+        raise HTTPException(404, f"Unknown category: {payload.category}. "
+                            f"Available: {list(BEHAVIORAL_CATEGORIES.keys())}")
+    return {"status": "ok", **_profile_behavior(payload.category, payload.input)}
+
+
+@app.get("/api/v1/recon/behavioral/categories")
+def recon_r6_categories() -> dict[str, Any]:
+    """获取行为画像类别列表."""
+    return {"status": "ok", "categories": {
+        k: {"name": v["name"], "severity": v["severity"], "refusal_rate": v["refusal_rate"],
+            "bypass_difficulty": v["bypass_difficulty"]}
+        for k, v in BEHAVIORAL_CATEGORIES.items()
+    }}
+
+
+@app.get("/api/v1/recon/behavioral/profile")
+def recon_r6_profile() -> dict[str, Any]:
+    """获取完整的行为画像数据."""
+    return {"status": "ok", **_get_behavioral_profile()}
+
+
+@app.post("/api/v1/recon/behavioral/probe")
+def recon_r6_probe(payload: AIRT300ProbeRequest) -> dict[str, Any]:
+    """R6 Probe 评分."""
+    categories_mentioned = [c for c in BEHAVIORAL_CATEGORIES if c in payload.text.lower()]
+    return {"status": "ok", "module_id": "recon-behavioral",
+            "categories_probed": len(categories_mentioned),
+            "categories": categories_mentioned,
+            "total_categories": len(BEHAVIORAL_CATEGORIES),
+            "flag_hint": "Map all 6 categories' refusal boundaries → FLAG{refusal_boundary_mapped_300}"}
 
 
 # ═══════════════════════════════════════════════════════════

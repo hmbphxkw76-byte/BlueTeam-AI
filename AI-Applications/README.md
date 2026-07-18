@@ -5,14 +5,13 @@
 
 [![Python](https://img.shields.io/badge/python-%3E%3D3.11-blue)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/fastapi-%3E%3D0.111.0-teal)](https://fastapi.tiangolo.com/)
-[![LobeChat](https://img.shields.io/badge/LobeChat-integrated-purple)](https://github.com/lobehub/lobe-chat)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 ---
 
 ## 概述
 
-AISecLab 是一个集 **AI 安全攻防训练** 和 **企业业务系统模拟** 于一体的本地靶机平台。平台提供 16 个安全实验模块、80+ AI-300 Frameworks 集成端点、完整的工单管理系统、向量 RAG 知识库和 AI Agent 智能决策引擎，集成 **LobeChat** 现代化聊天界面，支持 OpenAI / Anthropic / Gemini 兼容 API。
+AISecLab 是一个集 **AI 安全攻防训练** 和 **企业业务系统模拟** 于一体的本地靶机平台。平台提供 16 个安全实验模块、80+ AI-300 Frameworks 集成端点、完整的工单管理系统、向量 RAG 知识库和 AI Agent 智能决策引擎，内置典型 AI 对话窗口，支持 OpenAI / Anthropic / Gemini 兼容 API。
 
 > 详细发布说明请参阅 [RELEASE.md](RELEASE.md)
 
@@ -30,7 +29,6 @@ docker compose up -d --build
 | 服务 | 访问地址 | 说明 |
 |------|----------|------|
 | AISecLab | **https://localhost:443** | 主平台 |
-| LobeChat | **http://localhost:3210** | 现代化 AI 聊天界面（Access Code: `lobe-aiseclab`） |
 
 ### 本地开发
 

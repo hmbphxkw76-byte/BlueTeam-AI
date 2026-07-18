@@ -71,14 +71,6 @@
 
 ## v0.4.0 更新内容
 
-### 💬 LobeChat 集成 — 现代化聊天界面
-
-- **Docker Compose 一键启动**：`docker compose up -d --build` 同时启动 AISecLab 和 LobeChat
-- **访问方式**：http://localhost:3210
-- **Access Code**：`lobe-aiseclab`
-- **自动连接本地 API**：预配置连接 AISecLab 的 OpenAI 兼容端点 `/v1/chat/completions`
-- **现代化体验**：Markdown 渲染、代码高亮、对话分支、插件扩展等高级功能
-
 ### 📚 靶机场景知识库扩展
 
 新增场景知识库文档，覆盖三大训练模块（参考好靶场平台「AI安全靶场全集」）：
@@ -268,9 +260,8 @@ AI-Applications/
 │
 ├── templates/                     # Jinja2 模板（13 个页面）
 │   ├── _nav.html                  # 共享导航栏
-│   ├── home.html                  # 首页（模型配置、快捷操作）
+│   ├── home.html                  # 首页（模型配置、内置 AI Chat）
 │   ├── chat.html                  # 对话界面
-│   ├── lobechat.html              # LobeChat 启动与配置页面
 │   ├── login.html                 # 登录页
 │   ├── labs.html                  # 实验模块目录
 │   ├── lab_detail.html            # 实验详情与挑战 UI
@@ -531,9 +522,8 @@ LAB_TLS_HOSTS=localhost,127.0.0.1,0.0.0.0
 - [x] 工单 CRUD + SLA 监控
 - [x] RAG 知识库索引与检索
 - [x] OpenAI/Anthropic/Gemini 兼容 API
-- [x] Docker Compose 一键部署（含 LobeChat）
+- [x] Docker Compose 一键部署
 - [x] .gitignore 排除敏感文件（.env / 证书 / 数据 / 虚拟环境 / Python 包）
 - [x] 自签名证书自动生成
-- [x] LobeChat 集成与 API 连接
 - [x] 靶机场景知识库文档（提示词注入系列 + 高级攻击场景）
 - [x] 速率限制值全局同步

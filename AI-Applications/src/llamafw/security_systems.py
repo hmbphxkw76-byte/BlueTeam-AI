@@ -577,31 +577,45 @@ class RAGSystem:
     """
 
     def __init__(self, persist_directory: str = "./chroma_db", access_code: Optional[str] = None):
+        self._persist_dir = persist_directory
+        self._client = None
+        self._collection = None
+        self._available = False
+        self._enabled = False
+        self._fallback_store: list[dict] = []
+
+        self.access_code = access_code or f"AC-{_token_urlsafe(16)}"
+        self._collection_name = "knowledge_base"
+        self._seed_fallback()  # 默认用内存 fallback，不触发 ChromaDB
+
+    def enable(self) -> bool:
+        """显式启用 ChromaDB 向量检索。
+
+        调用此方法后会初始化 ChromaDB 并下载 ONNX embedding 模型。
+        国内用户建议提前设置: export HF_ENDPOINT=https://hf-mirror.com
+        """
+        if self._enabled:
+            return True
         try:
             import chromadb
             from chromadb.config import Settings
             settings = Settings(anonymized_telemetry=False)
-            self._client = chromadb.PersistentClient(path=persist_directory, settings=settings)
+            self._client = chromadb.PersistentClient(path=self._persist_dir, settings=settings)
             self._available = True
-        except Exception:
-            self._client = None
-            self._available = False
-            self._fallback_store: list[dict] = []
-
-        self.access_code = access_code or f"AC-{_token_urlsafe(16)}"
-        self._collection_name = "knowledge_base"
-        self._initialize()
-
-    def _initialize(self):
-        if self._available and self._client:
             self._collection = self._client.get_or_create_collection(
                 name=self._collection_name,
                 metadata={"description": "RAG knowledge base"},
             )
             if self._collection.count() == 0:
                 self._seed_documents()
-        else:
+            self._enabled = True
+            print("[RAGSystem] ✅ ChromaDB 已启用，向量检索就绪。")
+            return True
+        except Exception as e:
+            print(f"[RAGSystem] ⚠ ChromaDB 初始化失败: {e}，使用 fallback 模式。")
             self._seed_fallback()
+            return False
+
 
     def _seed_documents(self):
         docs = [

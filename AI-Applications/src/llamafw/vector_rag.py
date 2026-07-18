@@ -20,6 +20,9 @@ from .config import VECTOR_DB_PATH, KNOWLEDGE_BASE_DIR
 COLLECTION_NAME = "aiseclab_knowledge_base"
 EMBEDDING_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 
+# 全局启用标志：设为 True 后才允许初始化 ChromaDB / 下载模型
+_VECTOR_RAG_ENABLED = False
+
 
 class VectorRAG:
     """基于 ChromaDB + SentenceTransformer 的向量检索。"""
@@ -32,9 +35,14 @@ class VectorRAG:
         self._initialized: bool = False
 
     def _ensure_initialized(self) -> bool:
-        """初始化 ChromaDB 客户端和 embedding 模型。"""
+        """初始化 ChromaDB 客户端和 embedding 模型。
+
+        需要先调用 enable() 或设置全局标志后才实际初始化。
+        """
         if self._initialized:
             return True
+        if not _VECTOR_RAG_ENABLED:
+            return False
         try:
             import chromadb
             from chromadb.config import Settings
@@ -54,16 +62,40 @@ class VectorRAG:
         except Exception:
             return False
 
+    _model_download_attempted: bool = False
+
     def _get_embedding_model(self) -> Any:
-        """延迟加载 embedding 模型（带超时，防止 HuggingFace 被墙导致启动卡死）。"""
+        """延迟加载 embedding 模型。
+
+        首次调用时自动跳过下载，避免 HuggingFace 不可达导致启动卡死。
+        调用 download_model() 显式触发下载。
+        """
         if self._embedding_model is not None:
             return self._embedding_model
+        if not self._model_download_attempted:
+            print("[VectorRAG] ℹ embedding 模型尚未下载，向量 RAG 功能暂不可用。"
+                  " 调用 download_model() 下载模型，"
+                  " 或设置 HF_ENDPOINT=https://hf-mirror.com 使用国内镜像加速。")
+            self._model_download_attempted = True
+        return None
+
+    def download_model(self, timeout: int = 300) -> bool:
+        """显式下载 embedding 模型。
+
+        调用此方法触发模型下载。如果已有缓存则直接加载。
+        国内用户建议提前设置: export HF_ENDPOINT=https://hf-mirror.com
+        """
+        if self._embedding_model is not None:
+            print("[VectorRAG] ✅ 模型已加载，无需重复下载。")
+            return True
         try:
             import threading
             from sentence_transformers import SentenceTransformer
 
             result: list[Any] = []
             error: list[Exception | None] = [None]
+
+            print(f"[VectorRAG] ⏳ 正在下载/加载 embedding 模型 {EMBEDDING_MODEL_NAME} ...")
 
             def _load():
                 try:
@@ -73,24 +105,26 @@ class VectorRAG:
 
             t = threading.Thread(target=_load, daemon=True)
             t.start()
-            t.join(timeout=15)  # 最多等 15 秒
+            t.join(timeout=timeout)
 
             if t.is_alive():
-                print(f"[VectorRAG] ⚠ 模型下载超时（HuggingFace 不可达），跳过向量 RAG 初始化。"
-                      f" 可设置 HF_ENDPOINT=https://hf-mirror.com 使用镜像。")
-                return None
+                print(f"[VectorRAG] ⚠ 模型下载超时（{timeout}s），"
+                      f" 可设置 HF_ENDPOINT=https://hf-mirror.com 使用镜像后重试。")
+                return False
 
             if error[0]:
-                print(f"[VectorRAG] ⚠ 模型加载失败: {error[0]}，跳过向量 RAG 初始化。")
-                return None
+                print(f"[VectorRAG] ⚠ 模型加载失败: {error[0]}")
+                return False
 
             if result:
                 self._embedding_model = result[0]
-                return self._embedding_model
-            return None
+                self._model_download_attempted = True
+                print("[VectorRAG] ✅ 模型加载成功，向量 RAG 已就绪。")
+                return True
+            return False
         except Exception as e:
-            print(f"[VectorRAG] ⚠ 模型加载异常: {e}，跳过向量 RAG 初始化。")
-            return None
+            print(f"[VectorRAG] ⚠ 模型加载异常: {e}")
+            return False
 
     def _embed_texts(self, texts: list[str]) -> list[list[float]] | None:
         """将文本列表转为向量。"""
@@ -318,6 +352,21 @@ def get_rag() -> VectorRAG:
     if _rag_instance is None:
         _rag_instance = VectorRAG()
     return _rag_instance
+
+
+def enable_rag() -> bool:
+    """启用向量 RAG 并下载模型。
+
+    Returns True 表示启用成功（含 ChromaDB 初始化 + embedding 模型下载）。
+    国内用户建议提前设置: HF_ENDPOINT=https://hf-mirror.com
+    """
+    global _VECTOR_RAG_ENABLED
+    _VECTOR_RAG_ENABLED = True
+    rag = get_rag()
+    if rag._ensure_initialized():
+        return rag.download_model()
+    print("[VectorRAG] ⚠ ChromaDB 初始化失败，向量 RAG 暂不可用。")
+    return False
 
 
 # ── 知识库内容 ──
